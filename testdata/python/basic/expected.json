@@ -1,0 +1,25 @@
+[
+  {
+    "name": "process_order", "qualified_name": "process_order", "file": "input/service.py",
+    "language": "python", "start_line": 12, "end_line": 13, "kind": "function",
+    "exported": true, "tag": "application",
+    "parameters": [
+      {"name": "order", "type": "OrderRequest", "expanded": [
+        {"name": "id", "type": "str"}, {"name": "amount", "type": "float"}, {"name": "items", "type": "List[str]"}
+      ]},
+      {"name": "retry", "type": "bool"}
+    ],
+    "returns": {"values": [{"type": "ProcessResult", "expanded": [
+      {"name": "success", "type": "bool"}, {"name": "order_id", "type": "str"}
+    ]}]},
+    "contract_completeness": "full"
+  },
+  {
+    "name": "_calculate_total", "qualified_name": "_calculate_total", "file": "input/service.py",
+    "language": "python", "start_line": 15, "end_line": 16, "kind": "function",
+    "exported": false, "tag": "application",
+    "parameters": [{"name": "items", "type": "List[str]"}],
+    "returns": {"values": [{"type": "float"}]},
+    "contract_completeness": "full"
+  }
+]

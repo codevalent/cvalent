@@ -1,0 +1,34 @@
+[
+  {
+    "name": "findUser",
+    "qualified_name": "findUser",
+    "file": "input/utils.ts",
+    "language": "typescript",
+    "start_line": 1,
+    "end_line": 3,
+    "kind": "function",
+    "exported": true,
+    "tag": "application",
+    "parameters": [
+      {"name": "id", "type": "string"}
+    ],
+    "returns": {"values": [{"type": "User | null", "nullable": true}]},
+    "contract_completeness": "full"
+  },
+  {
+    "name": "getName",
+    "qualified_name": "getName",
+    "file": "input/utils.ts",
+    "language": "typescript",
+    "start_line": 5,
+    "end_line": 7,
+    "kind": "function",
+    "exported": true,
+    "tag": "application",
+    "parameters": [
+      {"name": "user", "type": "User", "nullable": true}
+    ],
+    "returns": {"values": [{"type": "string | undefined", "nullable": true}]},
+    "contract_completeness": "full"
+  }
+]

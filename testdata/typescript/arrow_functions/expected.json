@@ -1,0 +1,51 @@
+[
+  {
+    "name": "add",
+    "qualified_name": "add",
+    "file": "input/helpers.ts",
+    "language": "typescript",
+    "start_line": 1,
+    "end_line": 1,
+    "kind": "function",
+    "exported": true,
+    "tag": "application",
+    "parameters": [
+      {"name": "a", "type": "number"},
+      {"name": "b", "type": "number"}
+    ],
+    "returns": {"values": [{"type": "number"}]},
+    "contract_completeness": "full"
+  },
+  {
+    "name": "greet",
+    "qualified_name": "greet",
+    "file": "input/helpers.ts",
+    "language": "typescript",
+    "start_line": 3,
+    "end_line": 5,
+    "kind": "function",
+    "exported": true,
+    "tag": "application",
+    "parameters": [
+      {"name": "name", "type": "string"}
+    ],
+    "returns": {"values": [{"type": "string"}]},
+    "contract_completeness": "full"
+  },
+  {
+    "name": "internal",
+    "qualified_name": "internal",
+    "file": "input/helpers.ts",
+    "language": "typescript",
+    "start_line": 7,
+    "end_line": 7,
+    "kind": "function",
+    "exported": false,
+    "tag": "application",
+    "parameters": [
+      {"name": "x", "type": "number"}
+    ],
+    "returns": {"values": []},
+    "contract_completeness": "full"
+  }
+]

@@ -1,0 +1,20 @@
+[
+  {
+    "name": "test_process_order", "qualified_name": "test_process_order", "file": "input/test_service.py",
+    "language": "python", "start_line": 3, "end_line": 4, "kind": "function",
+    "exported": true, "tag": "test", "parameters": [], "returns": {"values": []},
+    "contract_completeness": "full"
+  },
+  {
+    "name": "test_calculate_total", "qualified_name": "test_calculate_total", "file": "input/test_service.py",
+    "language": "python", "start_line": 6, "end_line": 7, "kind": "function",
+    "exported": true, "tag": "test", "parameters": [], "returns": {"values": []},
+    "contract_completeness": "full"
+  },
+  {
+    "name": "helper_setup", "qualified_name": "helper_setup", "file": "input/test_service.py",
+    "language": "python", "start_line": 9, "end_line": 10, "kind": "function",
+    "exported": true, "tag": "application", "parameters": [], "returns": {"values": []},
+    "contract_completeness": "full"
+  }
+]

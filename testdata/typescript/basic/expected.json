@@ -1,0 +1,46 @@
+[
+  {
+    "name": "processOrder",
+    "qualified_name": "processOrder",
+    "file": "input/service.ts",
+    "language": "typescript",
+    "start_line": 12,
+    "end_line": 14,
+    "kind": "function",
+    "exported": true,
+    "tag": "application",
+    "parameters": [
+      {"name": "order", "type": "OrderRequest", "expanded": [
+        {"name": "id", "type": "string"},
+        {"name": "amount", "type": "number"},
+        {"name": "items", "type": "LineItem[]"}
+      ]},
+      {"name": "retry", "type": "boolean"}
+    ],
+    "returns": {
+      "values": [{"type": "ProcessResult", "expanded": [
+        {"name": "success", "type": "boolean"},
+        {"name": "orderId", "type": "string", "nullable": true}
+      ]}]
+    },
+    "contract_completeness": "full"
+  },
+  {
+    "name": "calculateTotal",
+    "qualified_name": "calculateTotal",
+    "file": "input/service.ts",
+    "language": "typescript",
+    "start_line": 16,
+    "end_line": 18,
+    "kind": "function",
+    "exported": false,
+    "tag": "application",
+    "parameters": [
+      {"name": "items", "type": "LineItem[]"}
+    ],
+    "returns": {
+      "values": [{"type": "number"}]
+    },
+    "contract_completeness": "full"
+  }
+]

@@ -1,0 +1,16 @@
+[
+  {
+    "name": "setupMock",
+    "qualified_name": "setupMock",
+    "file": "input/order.test.ts",
+    "language": "typescript",
+    "start_line": 11,
+    "end_line": 12,
+    "kind": "function",
+    "exported": false,
+    "tag": "test",
+    "parameters": [],
+    "returns": {"values": []},
+    "contract_completeness": "full"
+  }
+]

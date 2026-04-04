@@ -1,0 +1,65 @@
+[
+  {
+    "name": "TestProcessOrder",
+    "qualified_name": "handler.TestProcessOrder",
+    "file": "input/handler_test.go",
+    "package": "handler",
+    "language": "go",
+    "start_line": 5,
+    "end_line": 7,
+    "kind": "function",
+    "exported": true,
+    "tag": "test",
+    "parameters": [
+      {
+        "name": "t",
+        "type": "*testing.T",
+        "nullable": true
+      }
+    ],
+    "returns": {
+      "values": []
+    },
+    "contract_completeness": "full"
+  },
+  {
+    "name": "BenchmarkProcessOrder",
+    "qualified_name": "handler.BenchmarkProcessOrder",
+    "file": "input/handler_test.go",
+    "package": "handler",
+    "language": "go",
+    "start_line": 9,
+    "end_line": 11,
+    "kind": "function",
+    "exported": true,
+    "tag": "test",
+    "parameters": [
+      {
+        "name": "b",
+        "type": "*testing.B",
+        "nullable": true
+      }
+    ],
+    "returns": {
+      "values": []
+    },
+    "contract_completeness": "full"
+  },
+  {
+    "name": "helperSetup",
+    "qualified_name": "handler.helperSetup",
+    "file": "input/handler_test.go",
+    "package": "handler",
+    "language": "go",
+    "start_line": 13,
+    "end_line": 15,
+    "kind": "function",
+    "exported": false,
+    "tag": "application",
+    "parameters": [],
+    "returns": {
+      "values": []
+    },
+    "contract_completeness": "full"
+  }
+]

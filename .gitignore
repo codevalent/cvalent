@@ -1,0 +1,18 @@
+# Build output
+/cvalent
+/bin/
+
+# Graph database files
+.cvalent/graph.db
+*.db
+
+# Go
+/vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store

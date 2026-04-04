@@ -1,0 +1,40 @@
+[
+  {
+    "name": "process",
+    "qualified_name": "com.example.Processor.process",
+    "file": "input/Processor.java",
+    "package": "com.example",
+    "language": "java",
+    "start_line": 4,
+    "end_line": 4,
+    "kind": "method",
+    "receiver": "Processor",
+    "exported": false,
+    "tag": "application",
+    "parameters": [
+      {"name": "input", "type": "Input"}
+    ],
+    "returns": {
+      "values": [{"type": "Result"}]
+    },
+    "contract_completeness": "full"
+  },
+  {
+    "name": "cleanup",
+    "qualified_name": "com.example.Processor.cleanup",
+    "file": "input/Processor.java",
+    "package": "com.example",
+    "language": "java",
+    "start_line": 5,
+    "end_line": 5,
+    "kind": "method",
+    "receiver": "Processor",
+    "exported": false,
+    "tag": "application",
+    "parameters": [],
+    "returns": {
+      "values": []
+    },
+    "contract_completeness": "full"
+  }
+]

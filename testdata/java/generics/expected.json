@@ -1,0 +1,40 @@
+[
+  {
+    "name": "findAll",
+    "qualified_name": "com.example.Repository.findAll",
+    "file": "input/Repository.java",
+    "package": "com.example",
+    "language": "java",
+    "start_line": 7,
+    "end_line": 9,
+    "kind": "method",
+    "receiver": "Repository",
+    "exported": true,
+    "tag": "application",
+    "parameters": [],
+    "returns": {
+      "values": [{"type": "List<OrderRequest>"}]
+    },
+    "contract_completeness": "full"
+  },
+  {
+    "name": "groupCounts",
+    "qualified_name": "com.example.Repository.groupCounts",
+    "file": "input/Repository.java",
+    "package": "com.example",
+    "language": "java",
+    "start_line": 11,
+    "end_line": 13,
+    "kind": "method",
+    "receiver": "Repository",
+    "exported": true,
+    "tag": "application",
+    "parameters": [
+      {"name": "key", "type": "String"}
+    ],
+    "returns": {
+      "values": [{"type": "Map<String, List<Integer>>"}]
+    },
+    "contract_completeness": "full"
+  }
+]

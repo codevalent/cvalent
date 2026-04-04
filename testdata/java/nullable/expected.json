@@ -1,0 +1,43 @@
+[
+  {
+    "name": "findUser",
+    "qualified_name": "com.example.UserService.findUser",
+    "file": "input/UserService.java",
+    "package": "com.example",
+    "language": "java",
+    "start_line": 7,
+    "end_line": 9,
+    "kind": "method",
+    "receiver": "UserService",
+    "exported": true,
+    "tag": "application",
+    "parameters": [
+      {"name": "id", "type": "String"}
+    ],
+    "returns": {
+      "values": [{"type": "Optional<User>", "nullable": true}]
+    },
+    "contract_completeness": "full"
+  },
+  {
+    "name": "updateUser",
+    "qualified_name": "com.example.UserService.updateUser",
+    "file": "input/UserService.java",
+    "package": "com.example",
+    "language": "java",
+    "start_line": 11,
+    "end_line": 12,
+    "kind": "method",
+    "receiver": "UserService",
+    "exported": true,
+    "tag": "application",
+    "parameters": [
+      {"name": "name", "type": "String", "nullable": true},
+      {"name": "age", "type": "int"}
+    ],
+    "returns": {
+      "values": []
+    },
+    "contract_completeness": "full"
+  }
+]

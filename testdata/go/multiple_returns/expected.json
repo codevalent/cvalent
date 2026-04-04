@@ -1,0 +1,73 @@
+[
+  {
+    "name": "GetUserInfo",
+    "qualified_name": "multi.GetUserInfo",
+    "file": "input/multi.go",
+    "package": "multi",
+    "language": "go",
+    "start_line": 3,
+    "end_line": 5,
+    "kind": "function",
+    "exported": true,
+    "tag": "application",
+    "parameters": [
+      {
+        "name": "id",
+        "type": "string"
+      }
+    ],
+    "returns": {
+      "multiple": true,
+      "values": [
+        {"type": "string"},
+        {"type": "int"},
+        {"type": "error", "nullable": true}
+      ]
+    },
+    "contract_completeness": "full"
+  },
+  {
+    "name": "ParseConfig",
+    "qualified_name": "multi.ParseConfig",
+    "file": "input/multi.go",
+    "package": "multi",
+    "language": "go",
+    "start_line": 7,
+    "end_line": 9,
+    "kind": "function",
+    "exported": true,
+    "tag": "application",
+    "parameters": [
+      {
+        "name": "path",
+        "type": "string"
+      }
+    ],
+    "returns": {
+      "multiple": true,
+      "values": [
+        {"name": "host", "type": "string"},
+        {"name": "port", "type": "int"},
+        {"name": "err", "type": "error", "nullable": true}
+      ]
+    },
+    "contract_completeness": "full"
+  },
+  {
+    "name": "NoReturn",
+    "qualified_name": "multi.NoReturn",
+    "file": "input/multi.go",
+    "package": "multi",
+    "language": "go",
+    "start_line": 11,
+    "end_line": 12,
+    "kind": "function",
+    "exported": true,
+    "tag": "application",
+    "parameters": [],
+    "returns": {
+      "values": []
+    },
+    "contract_completeness": "full"
+  }
+]

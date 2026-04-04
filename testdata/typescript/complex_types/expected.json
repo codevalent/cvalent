@@ -1,0 +1,36 @@
+[
+  {
+    "name": "createServer",
+    "qualified_name": "createServer",
+    "file": "input/types.ts",
+    "language": "typescript",
+    "start_line": 6,
+    "end_line": 7,
+    "kind": "function",
+    "exported": true,
+    "tag": "application",
+    "parameters": [
+      {"name": "config", "type": "Config", "expanded": [
+        {"name": "host", "type": "string"},
+        {"name": "port", "type": "number"}
+      ]},
+      {"name": "options", "type": "Record<string, any>"}
+    ],
+    "returns": {"values": []},
+    "contract_completeness": "full"
+  },
+  {
+    "name": "getData",
+    "qualified_name": "getData",
+    "file": "input/types.ts",
+    "language": "typescript",
+    "start_line": 9,
+    "end_line": 11,
+    "kind": "function",
+    "exported": true,
+    "tag": "application",
+    "parameters": [],
+    "returns": {"values": [{"type": "Promise<Map<string, number[]>>"}]},
+    "contract_completeness": "full"
+  }
+]

@@ -1,0 +1,18 @@
+[
+  {
+    "name": "parse_config", "qualified_name": "parse_config", "file": "input/utils.py",
+    "language": "python", "start_line": 1, "end_line": 2, "kind": "function",
+    "exported": true, "tag": "application",
+    "parameters": [{"name": "path"}],
+    "returns": {"values": []},
+    "contract_completeness": "inferred"
+  },
+  {
+    "name": "add", "qualified_name": "add", "file": "input/utils.py",
+    "language": "python", "start_line": 4, "end_line": 5, "kind": "function",
+    "exported": true, "tag": "application",
+    "parameters": [{"name": "a"}, {"name": "b"}],
+    "returns": {"values": []},
+    "contract_completeness": "inferred"
+  }
+]

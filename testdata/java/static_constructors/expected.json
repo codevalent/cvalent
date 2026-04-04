@@ -1,0 +1,59 @@
+[
+  {
+    "name": "Config",
+    "qualified_name": "com.example.Config.Config",
+    "file": "input/Config.java",
+    "package": "com.example",
+    "language": "java",
+    "start_line": 7,
+    "end_line": 10,
+    "kind": "constructor",
+    "receiver": "Config",
+    "exported": true,
+    "tag": "application",
+    "parameters": [
+      {"name": "host", "type": "String"},
+      {"name": "port", "type": "int"}
+    ],
+    "returns": {
+      "values": []
+    },
+    "contract_completeness": "full"
+  },
+  {
+    "name": "defaultConfig",
+    "qualified_name": "com.example.Config.defaultConfig",
+    "file": "input/Config.java",
+    "package": "com.example",
+    "language": "java",
+    "start_line": 12,
+    "end_line": 14,
+    "kind": "method",
+    "receiver": "Config",
+    "exported": true,
+    "tag": "application",
+    "parameters": [],
+    "returns": {
+      "values": [{"type": "Config"}]
+    },
+    "contract_completeness": "full"
+  },
+  {
+    "name": "getHost",
+    "qualified_name": "com.example.Config.getHost",
+    "file": "input/Config.java",
+    "package": "com.example",
+    "language": "java",
+    "start_line": 16,
+    "end_line": 18,
+    "kind": "method",
+    "receiver": "Config",
+    "exported": true,
+    "tag": "application",
+    "parameters": [],
+    "returns": {
+      "values": [{"type": "String"}]
+    },
+    "contract_completeness": "full"
+  }
+]

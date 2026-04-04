@@ -1,0 +1,72 @@
+[
+  {
+    "name": "ProcessOrder",
+    "qualified_name": "main.ProcessOrder",
+    "file": "input/main.go",
+    "package": "main",
+    "language": "go",
+    "start_line": 14,
+    "end_line": 16,
+    "kind": "function",
+    "exported": true,
+    "tag": "application",
+    "parameters": [
+      {
+        "name": "order",
+        "type": "OrderRequest",
+        "expanded": [
+          {"name": "ID", "type": "string"},
+          {"name": "Amount", "type": "float64"},
+          {"name": "Items", "type": "[]LineItem"}
+        ]
+      },
+      {
+        "name": "retry",
+        "type": "bool"
+      }
+    ],
+    "returns": {
+      "multiple": true,
+      "values": [
+        {
+          "type": "ProcessResult",
+          "expanded": [
+            {"name": "Success", "type": "bool"},
+            {"name": "OrderID", "type": "string"}
+          ]
+        },
+        {
+          "type": "error",
+          "nullable": true
+        }
+      ]
+    },
+    "contract_completeness": "full"
+  },
+  {
+    "name": "calculateTotal",
+    "qualified_name": "main.calculateTotal",
+    "file": "input/main.go",
+    "package": "main",
+    "language": "go",
+    "start_line": 18,
+    "end_line": 20,
+    "kind": "function",
+    "exported": false,
+    "tag": "application",
+    "parameters": [
+      {
+        "name": "items",
+        "type_expr": "[]LineItem"
+      }
+    ],
+    "returns": {
+      "values": [
+        {
+          "type": "float64"
+        }
+      ]
+    },
+    "contract_completeness": "full"
+  }
+]

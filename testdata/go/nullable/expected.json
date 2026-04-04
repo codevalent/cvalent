@@ -1,0 +1,72 @@
+[
+  {
+    "name": "NewService",
+    "qualified_name": "service.NewService",
+    "file": "input/service.go",
+    "package": "service",
+    "language": "go",
+    "start_line": 9,
+    "end_line": 11,
+    "kind": "function",
+    "exported": true,
+    "tag": "application",
+    "parameters": [
+      {
+        "name": "cfg",
+        "type": "*Config",
+        "nullable": true,
+        "expanded": [
+          {"name": "Host", "type": "string"},
+          {"name": "Port", "type": "int"},
+          {"name": "Timeout", "type": "*int", "nullable": true}
+        ]
+      },
+      {
+        "name": "name",
+        "type": "string"
+      }
+    ],
+    "returns": {
+      "multiple": true,
+      "values": [
+        {
+          "type_expr": "*Service",
+          "nullable": true
+        },
+        {
+          "type": "error",
+          "nullable": true
+        }
+      ]
+    },
+    "contract_completeness": "full"
+  },
+  {
+    "name": "Close",
+    "qualified_name": "service.Close",
+    "file": "input/service.go",
+    "package": "service",
+    "language": "go",
+    "start_line": 13,
+    "end_line": 15,
+    "kind": "function",
+    "exported": true,
+    "tag": "application",
+    "parameters": [
+      {
+        "name": "s",
+        "type_expr": "*Service",
+        "nullable": true
+      }
+    ],
+    "returns": {
+      "values": [
+        {
+          "type": "error",
+          "nullable": true
+        }
+      ]
+    },
+    "contract_completeness": "full"
+  }
+]

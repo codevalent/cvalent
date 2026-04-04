@@ -1,0 +1,13 @@
+[
+  {
+    "name": "create_config", "qualified_name": "create_config", "file": "input/models.py",
+    "language": "python", "start_line": 10, "end_line": 11, "kind": "function",
+    "exported": true, "tag": "application",
+    "parameters": [{"name": "host", "type": "str"}, {"name": "port", "type": "int"}],
+    "returns": {"values": [{"type": "Config", "expanded": [
+      {"name": "host", "type": "str"}, {"name": "port", "type": "int"},
+      {"name": "timeout", "type": "Optional[int]", "nullable": true}
+    ]}]},
+    "contract_completeness": "full"
+  }
+]

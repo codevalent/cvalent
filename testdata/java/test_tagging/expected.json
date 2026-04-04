@@ -1,0 +1,56 @@
+[
+  {
+    "name": "testProcessOrder",
+    "qualified_name": "com.example.OrderServiceTest.testProcessOrder",
+    "file": "input/OrderServiceTest.java",
+    "package": "com.example",
+    "language": "java",
+    "start_line": 6,
+    "end_line": 8,
+    "kind": "method",
+    "receiver": "OrderServiceTest",
+    "exported": true,
+    "tag": "test",
+    "parameters": [],
+    "returns": {
+      "values": []
+    },
+    "contract_completeness": "full"
+  },
+  {
+    "name": "shouldCalculateTotal",
+    "qualified_name": "com.example.OrderServiceTest.shouldCalculateTotal",
+    "file": "input/OrderServiceTest.java",
+    "package": "com.example",
+    "language": "java",
+    "start_line": 10,
+    "end_line": 12,
+    "kind": "method",
+    "receiver": "OrderServiceTest",
+    "exported": false,
+    "tag": "test",
+    "parameters": [],
+    "returns": {
+      "values": []
+    },
+    "contract_completeness": "full"
+  },
+  {
+    "name": "setupTestData",
+    "qualified_name": "com.example.OrderServiceTest.setupTestData",
+    "file": "input/OrderServiceTest.java",
+    "package": "com.example",
+    "language": "java",
+    "start_line": 14,
+    "end_line": 15,
+    "kind": "method",
+    "receiver": "OrderServiceTest",
+    "exported": false,
+    "tag": "application",
+    "parameters": [],
+    "returns": {
+      "values": []
+    },
+    "contract_completeness": "full"
+  }
+]

@@ -1,0 +1,79 @@
+[
+  {
+    "name": "Validate",
+    "qualified_name": "types.OrderRequest.Validate",
+    "file": "input/types.go",
+    "package": "types",
+    "language": "go",
+    "start_line": 8,
+    "end_line": 10,
+    "kind": "method",
+    "receiver": "OrderRequest",
+    "exported": true,
+    "tag": "application",
+    "parameters": [],
+    "returns": {
+      "values": [
+        {
+          "type": "error",
+          "nullable": true
+        }
+      ]
+    },
+    "contract_completeness": "full"
+  },
+  {
+    "name": "SetAmount",
+    "qualified_name": "types.OrderRequest.SetAmount",
+    "file": "input/types.go",
+    "package": "types",
+    "language": "go",
+    "start_line": 12,
+    "end_line": 14,
+    "kind": "method",
+    "receiver": "*OrderRequest",
+    "exported": true,
+    "tag": "application",
+    "parameters": [
+      {
+        "name": "amount",
+        "type": "float64"
+      }
+    ],
+    "returns": {
+      "values": []
+    },
+    "contract_completeness": "full"
+  },
+  {
+    "name": "NewOrderRequest",
+    "qualified_name": "types.NewOrderRequest",
+    "file": "input/types.go",
+    "package": "types",
+    "language": "go",
+    "start_line": 16,
+    "end_line": 18,
+    "kind": "function",
+    "exported": true,
+    "tag": "application",
+    "parameters": [
+      {
+        "name": "id",
+        "type": "string"
+      }
+    ],
+    "returns": {
+      "values": [
+        {
+          "type": "*OrderRequest",
+          "nullable": true,
+          "expanded": [
+            {"name": "ID", "type": "string"},
+            {"name": "Amount", "type": "float64"}
+          ]
+        }
+      ]
+    },
+    "contract_completeness": "full"
+  }
+]

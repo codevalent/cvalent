@@ -1,0 +1,89 @@
+[
+  {
+    "name": "init",
+    "qualified_name": "edge.init",
+    "file": "input/edge.go",
+    "package": "edge",
+    "language": "go",
+    "start_line": 5,
+    "end_line": 7,
+    "kind": "function",
+    "exported": false,
+    "tag": "application",
+    "parameters": [],
+    "returns": {
+      "values": []
+    },
+    "contract_completeness": "full"
+  },
+  {
+    "name": "NoParams",
+    "qualified_name": "edge.NoParams",
+    "file": "input/edge.go",
+    "package": "edge",
+    "language": "go",
+    "start_line": 9,
+    "end_line": 11,
+    "kind": "function",
+    "exported": true,
+    "tag": "application",
+    "parameters": [],
+    "returns": {
+      "values": [
+        {"type": "string"}
+      ]
+    },
+    "contract_completeness": "full"
+  },
+  {
+    "name": "VariadicFunc",
+    "qualified_name": "edge.VariadicFunc",
+    "file": "input/edge.go",
+    "package": "edge",
+    "language": "go",
+    "start_line": 13,
+    "end_line": 14,
+    "kind": "function",
+    "exported": true,
+    "tag": "application",
+    "parameters": [
+      {
+        "name": "prefix",
+        "type": "string"
+      },
+      {
+        "name": "items",
+        "type": "...int",
+        "variadic": true
+      }
+    ],
+    "returns": {
+      "values": []
+    },
+    "contract_completeness": "full"
+  },
+  {
+    "name": "InterfaceParam",
+    "qualified_name": "edge.InterfaceParam",
+    "file": "input/edge.go",
+    "package": "edge",
+    "language": "go",
+    "start_line": 16,
+    "end_line": 18,
+    "kind": "function",
+    "exported": true,
+    "tag": "application",
+    "parameters": [
+      {
+        "name": "w",
+        "type": "interface{}"
+      }
+    ],
+    "returns": {
+      "values": [
+        {"type": "error", "nullable": true}
+      ]
+    },
+    "contract_completeness": "full"
+  }
+]

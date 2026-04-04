@@ -1,0 +1,34 @@
+[
+  {
+    "name": "route", "qualified_name": "route", "file": "input/api.py",
+    "language": "python", "start_line": 1, "end_line": 4, "kind": "function",
+    "exported": true, "tag": "application",
+    "parameters": [{"name": "path", "type": "str"}],
+    "returns": {"values": []},
+    "contract_completeness": "full"
+  },
+  {
+    "name": "get_orders", "qualified_name": "get_orders", "file": "input/api.py",
+    "language": "python", "start_line": 6, "end_line": 8, "kind": "function",
+    "exported": true, "tag": "application",
+    "parameters": [],
+    "returns": {"values": [{"type": "list"}]},
+    "contract_completeness": "full"
+  },
+  {
+    "name": "process", "qualified_name": "OrderService.process", "file": "input/api.py",
+    "language": "python", "start_line": 11, "end_line": 12, "kind": "method",
+    "receiver": "OrderService", "exported": true, "tag": "application",
+    "parameters": [{"name": "order_id", "type": "str"}],
+    "returns": {"values": [{"type": "bool"}]},
+    "contract_completeness": "full"
+  },
+  {
+    "name": "validate", "qualified_name": "OrderService.validate", "file": "input/api.py",
+    "language": "python", "start_line": 14, "end_line": 16, "kind": "method",
+    "receiver": "OrderService", "exported": true, "tag": "application",
+    "parameters": [{"name": "data", "type": "dict"}],
+    "returns": {"values": [{"type": "bool"}]},
+    "contract_completeness": "full"
+  }
+]
