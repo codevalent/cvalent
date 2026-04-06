@@ -1,56 +1,96 @@
 # CodeValent
 
-Local CLI that parses code with tree-sitter, extracts function contracts, resolves cross-file relationships, builds a data flow graph in GoraphDB, and makes it queryable via CLI commands and an MCP server.
+Local code graph for AI agents and developers. Parse, resolve, query — code never leaves your machine.
 
-Code never leaves your machine.
+## What It Does
+
+CodeValent uses tree-sitter to parse source code, extract function contracts (parameters, return types, error shapes), and resolve cross-file call relationships. It stores everything in a GoraphDB graph database local to your project, then exposes the full graph through CLI commands and an MCP server for AI agents.
 
 ## Quick Start
 
 ```bash
-# Build
-make build
-
-# Initialize (auto-detects languages)
-cvalent init
-
-# Build the code graph
-cvalent build
-
-# Query
-cvalent query callers ProcessOrder
-cvalent query impact validate --depth 3
-cvalent query untested
-cvalent query coupling
-
-# MCP server (for AI agents)
-cvalent serve --mcp
+cvalent init        # auto-detect languages, create .cvalent/
+cvalent build       # parse + resolve + build graph
+cvalent query impact ProcessOrder --depth 3
 ```
+
+## Install
+
+**Homebrew**
+
+```bash
+brew install codevalent/tap/cvalent
+```
+
+**Binary download**
+
+Pre-built binaries for Linux and macOS: [GitHub Releases](https://github.com/codevalent/cvalent/releases)
+
+**From source**
+
+```bash
+go install github.com/codevalent/cvalent/cmd/cvalent@latest
+```
+
+Requires Go 1.25+ and a C compiler (tree-sitter uses cgo).
 
 ## Supported Languages
 
-| Language   | Contract Depth |
-|------------|---------------|
-| Go         | Full          |
-| Java       | Full          |
-| TypeScript | Full (~95%)   |
-| Python     | Full (annotated) / Inferred (unannotated) |
+| Language   | Contract Depth                             |
+|------------|--------------------------------------------|
+| Go         | Full                                       |
+| Java       | Full                                       |
+| TypeScript | Full (~95%)                                |
+| Python     | Full (annotated) / Inferred (unannotated)  |
 
-## Query Commands
+## CLI Commands
 
-| Command | Description |
-|---------|-------------|
-| `callers <fn>` | Who calls this function? |
-| `contract <fn>` | What does it expect/return? |
-| `impact <fn>` | Blast radius of changing this function |
-| `breaks <fn>` | Callers with stale data shapes |
-| `entry-points` | Functions with no incoming calls |
-| `exports <module>` | Public API of a module |
-| `domains` | Module groupings with function counts |
-| `domain <name>` | Functions within a module |
-| `coupling` | Cross-module dependency density |
-| `untested` | Functions with no test coverage |
-| `test-coverage <fn>` | Tests that exercise a function |
+### Project
+
+| Command              | Description                              |
+|----------------------|------------------------------------------|
+| `cvalent init`       | Auto-detect languages, create `.cvalent/` config |
+| `cvalent build`      | Parse, resolve, and build the code graph |
+| `cvalent serve --mcp`| Start MCP server over stdio              |
+
+### Query
+
+| Command                    | Description                                  |
+|----------------------------|----------------------------------------------|
+| `query callers <fn>`       | Who calls this function?                     |
+| `query contract <fn>`      | What does it expect and return?              |
+| `query impact <fn>`        | Blast radius of changing this function       |
+| `query breaks <fn>`        | Callers with stale data shapes               |
+| `query entry-points`       | Functions with no incoming calls             |
+| `query exports <module>`   | Public API of a module                       |
+| `query domains`            | Module groupings with function counts        |
+| `query domain <name>`      | Functions within a module                    |
+| `query coupling`           | Cross-module dependency density              |
+| `query untested`           | Functions with no test coverage              |
+| `query test-coverage <fn>` | Tests that exercise a function               |
+
+## MCP Server
+
+```bash
+cvalent serve --mcp
+```
+
+Starts a stdio-based MCP server exposing 13 tools that mirror the CLI query surface. AI agents and editors can connect over standard MCP protocol. See [docs/mcp-setup.md](docs/mcp-setup.md) for editor configuration.
+
+## Platform Support
+
+| OS      | amd64 | arm64 |
+|---------|-------|-------|
+| Linux   | Yes   | Yes   |
+| macOS   | Yes   | Yes   |
+| Windows | --    | --    |
+
+Windows support is planned for a future release.
 
 ## License
 
-MIT
+[MIT](LICENSE)
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
