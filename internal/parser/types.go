@@ -9,10 +9,10 @@ type FunctionNode struct {
 	Language             string     `json:"language"`
 	StartLine            int        `json:"start_line"`
 	EndLine              int        `json:"end_line"`
-	Kind                 string     `json:"kind"`                  // "function", "method"
-	Receiver             string     `json:"receiver,omitempty"`    // for methods: "OrderRequest", "*OrderRequest"
+	Kind                 string     `json:"kind"`               // "function", "method"
+	Receiver             string     `json:"receiver,omitempty"` // for methods: "OrderRequest", "*OrderRequest"
 	Exported             bool       `json:"exported"`
-	Tag                  string     `json:"tag"`                   // "application" or "test"
+	Tag                  string     `json:"tag"` // "application" or "test"
 	Parameters           []Param    `json:"parameters"`
 	Returns              ReturnSpec `json:"returns"`
 	ContractCompleteness string     `json:"contract_completeness"` // "full", "partial", "inferred"

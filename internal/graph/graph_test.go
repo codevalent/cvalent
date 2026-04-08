@@ -36,74 +36,74 @@ func buildTestGraph(t *testing.T) *Graph {
 
 	// Function nodes
 	mainFn, _ := g.AddFunction(graphdb.Props{
-		"name":           "main",
-		"qualified_name": "main.main",
-		"file":           "main.go",
-		"module":         "cmd",
-		"start_line":     float64(10),
-		"end_line":       float64(25),
-		"exported":       true,
-		"contract":       `{"parameters":[],"returns":[]}`,
+		"name":                  "main",
+		"qualified_name":        "main.main",
+		"file":                  "main.go",
+		"module":                "cmd",
+		"start_line":            float64(10),
+		"end_line":              float64(25),
+		"exported":              true,
+		"contract":              `{"parameters":[],"returns":[]}`,
 		"contract_completeness": "full",
 	})
 
 	processOrder, _ := g.AddFunction(graphdb.Props{
-		"name":           "processOrder",
-		"qualified_name": "order.processOrder",
-		"file":           "order.go",
-		"module":         "internal/order",
-		"start_line":     float64(15),
-		"end_line":       float64(45),
-		"exported":       true,
-		"contract":       `{"parameters":[{"name":"ctx","type":"context.Context"},{"name":"req","type":"OrderRequest","expanded":{"id":"string","amount":"float64","items":"[]Item"}}],"returns":[{"type":"*OrderResult"},{"type":"error"}]}`,
+		"name":                  "processOrder",
+		"qualified_name":        "order.processOrder",
+		"file":                  "order.go",
+		"module":                "internal/order",
+		"start_line":            float64(15),
+		"end_line":              float64(45),
+		"exported":              true,
+		"contract":              `{"parameters":[{"name":"ctx","type":"context.Context"},{"name":"req","type":"OrderRequest","expanded":{"id":"string","amount":"float64","items":"[]Item"}}],"returns":[{"type":"*OrderResult"},{"type":"error"}]}`,
 		"contract_completeness": "full",
 	})
 
 	validateOrder, _ := g.AddFunction(graphdb.Props{
-		"name":           "validateOrder",
-		"qualified_name": "order.validateOrder",
-		"file":           "order.go",
-		"module":         "internal/order",
-		"start_line":     float64(50),
-		"end_line":       float64(70),
-		"exported":       false,
-		"contract":       `{"parameters":[{"name":"req","type":"OrderRequest"}],"returns":[{"type":"error"}]}`,
+		"name":                  "validateOrder",
+		"qualified_name":        "order.validateOrder",
+		"file":                  "order.go",
+		"module":                "internal/order",
+		"start_line":            float64(50),
+		"end_line":              float64(70),
+		"exported":              false,
+		"contract":              `{"parameters":[{"name":"req","type":"OrderRequest"}],"returns":[{"type":"error"}]}`,
 		"contract_completeness": "full",
 	})
 
 	saveOrder, _ := g.AddFunction(graphdb.Props{
-		"name":           "saveOrder",
-		"qualified_name": "store.saveOrder",
-		"file":           "store.go",
-		"module":         "internal/store",
-		"start_line":     float64(20),
-		"end_line":       float64(40),
-		"exported":       false,
-		"contract":       `{"parameters":[{"name":"order","type":"*Order"}],"returns":[{"type":"error"}]}`,
+		"name":                  "saveOrder",
+		"qualified_name":        "store.saveOrder",
+		"file":                  "store.go",
+		"module":                "internal/store",
+		"start_line":            float64(20),
+		"end_line":              float64(40),
+		"exported":              false,
+		"contract":              `{"parameters":[{"name":"order","type":"*Order"}],"returns":[{"type":"error"}]}`,
 		"contract_completeness": "full",
 	})
 
 	sendEmail, _ := g.AddFunction(graphdb.Props{
-		"name":           "sendEmail",
-		"qualified_name": "notify.sendEmail",
-		"file":           "notify.go",
-		"module":         "internal/notify",
-		"start_line":     float64(10),
-		"end_line":       float64(30),
-		"exported":       true,
-		"contract":       `{"parameters":[{"name":"to","type":"string"},{"name":"body","type":"string"}],"returns":[{"type":"error"}]}`,
+		"name":                  "sendEmail",
+		"qualified_name":        "notify.sendEmail",
+		"file":                  "notify.go",
+		"module":                "internal/notify",
+		"start_line":            float64(10),
+		"end_line":              float64(30),
+		"exported":              true,
+		"contract":              `{"parameters":[{"name":"to","type":"string"},{"name":"body","type":"string"}],"returns":[{"type":"error"}]}`,
 		"contract_completeness": "full",
 	})
 
 	testProcessOrder, _ := g.AddTestFunction(graphdb.Props{
-		"name":           "TestProcessOrder",
-		"qualified_name": "order_test.TestProcessOrder",
-		"file":           "order_test.go",
-		"module":         "internal/order",
-		"start_line":     float64(10),
-		"end_line":       float64(35),
-		"exported":       true,
-		"contract":       `{"parameters":[{"name":"t","type":"*testing.T"}],"returns":[]}`,
+		"name":                  "TestProcessOrder",
+		"qualified_name":        "order_test.TestProcessOrder",
+		"file":                  "order_test.go",
+		"module":                "internal/order",
+		"start_line":            float64(10),
+		"end_line":              float64(35),
+		"exported":              true,
+		"contract":              `{"parameters":[{"name":"t","type":"*testing.T"}],"returns":[]}`,
 		"contract_completeness": "full",
 	})
 
@@ -147,14 +147,14 @@ func TestSchema_CreateFunctionNode(t *testing.T) {
 	}
 
 	id, err := g.AddFunction(graphdb.Props{
-		"name":           "processOrder",
-		"qualified_name": "order.processOrder",
-		"file":           "order.go",
-		"module":         "internal/order",
-		"start_line":     float64(15),
-		"end_line":       float64(45),
-		"exported":       true,
-		"contract":       `{"parameters":[{"name":"ctx","type":"context.Context"}],"returns":[{"type":"error"}]}`,
+		"name":                  "processOrder",
+		"qualified_name":        "order.processOrder",
+		"file":                  "order.go",
+		"module":                "internal/order",
+		"start_line":            float64(15),
+		"end_line":              float64(45),
+		"exported":              true,
+		"contract":              `{"parameters":[{"name":"ctx","type":"context.Context"}],"returns":[{"type":"error"}]}`,
 		"contract_completeness": "full",
 	})
 	if err != nil {
@@ -581,4 +581,3 @@ func TestGate_OptionalMatch(t *testing.T) {
 	}
 	// t should be nil (no test calls sendEmail)
 }
-

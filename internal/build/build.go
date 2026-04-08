@@ -21,14 +21,14 @@ import (
 
 // Result contains build output statistics.
 type Result struct {
-	FunctionCount     int
-	EdgeCount         int
-	FileCount         int
-	Languages         []string
-	Skipped           map[string]int
-	ContractCoverage  map[string]int // completeness -> count
-	BuildTime         time.Duration
-	GraphPath         string
+	FunctionCount    int
+	EdgeCount        int
+	FileCount        int
+	Languages        []string
+	Skipped          map[string]int
+	ContractCoverage map[string]int // completeness -> count
+	BuildTime        time.Duration
+	GraphPath        string
 }
 
 // Options controls the build behavior.
@@ -67,7 +67,7 @@ func Run(opts Options) (*Result, error) {
 	parsers := map[string]parser.LanguageParser{
 		"go":         goparser.New(),
 		"java":       javaparser.New(),
-		"typescript":  tsparser.New(),
+		"typescript": tsparser.New(),
 		"python":     pyparser.New(),
 	}
 
@@ -165,12 +165,12 @@ func Run(opts Options) (*Result, error) {
 		langs = append(langs, lang)
 	}
 	g.AddGraphMeta(graphdb.Props{
-		"schema_version": float64(1),
-		"cvalent_version":  "0.1.0-dev",
-		"build_time":     time.Now().Format(time.RFC3339),
-		"function_count": float64(len(allNodes)),
-		"file_count":     float64(fileCount),
-		"languages":      fmt.Sprintf("%v", langs),
+		"schema_version":  float64(1),
+		"cvalent_version": "0.1.0-dev",
+		"build_time":      time.Now().Format(time.RFC3339),
+		"function_count":  float64(len(allNodes)),
+		"file_count":      float64(fileCount),
+		"languages":       fmt.Sprintf("%v", langs),
 	})
 
 	// Rebuild indexes after bulk insert

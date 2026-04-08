@@ -1,0 +1,31 @@
+version: "2"
+sql:
+  - engine: "sqlite"
+    schema: "internal/store/migrations/sqlite"
+    queries:
+      - "internal/store/queries/shared"
+      - "internal/store/queries/sqlite"
+    gen:
+      go:
+        package: "sqlitedb"
+        out: "internal/store/sqlitedb"
+        sql_package: "database/sql"
+        emit_interface: true
+        emit_json_tags: true
+        emit_prepared_queries: false
+        emit_exact_table_names: false
+
+  - engine: "postgresql"
+    schema: "internal/store/migrations/postgres"
+    queries:
+      - "internal/store/queries/shared"
+      - "internal/store/queries/postgres"
+    gen:
+      go:
+        package: "pgdb"
+        out: "internal/store/pgdb"
+        sql_package: "pgx/v5"
+        emit_interface: true
+        emit_json_tags: true
+        emit_prepared_queries: false
+        emit_exact_table_names: false

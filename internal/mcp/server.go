@@ -53,15 +53,15 @@ type rpcError struct {
 
 // Tool definitions
 type toolDef struct {
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
 	InputSchema inputSchema `json:"inputSchema"`
 }
 
 type inputSchema struct {
-	Type       string                 `json:"type"`
-	Properties map[string]propDef     `json:"properties,omitempty"`
-	Required   []string               `json:"required,omitempty"`
+	Type       string             `json:"type"`
+	Properties map[string]propDef `json:"properties,omitempty"`
+	Required   []string           `json:"required,omitempty"`
 }
 
 type propDef struct {
@@ -162,7 +162,7 @@ func (s *Server) handleRequest(req jsonrpcRequest) jsonrpcResponse {
 			JSONRPC: "2.0", ID: req.ID,
 			Result: map[string]interface{}{
 				"protocolVersion": "2024-11-05",
-				"capabilities":   map[string]interface{}{"tools": map[string]interface{}{}},
+				"capabilities":    map[string]interface{}{"tools": map[string]interface{}{}},
 				"serverInfo": map[string]interface{}{
 					"name":    "cvalent",
 					"version": "0.1.0-dev",
@@ -370,10 +370,10 @@ func (s *Server) graphSummary() (interface{}, error) {
 	}
 
 	return map[string]interface{}{
-		"modules":        domains.Items,
+		"modules":         domains.Items,
 		"total_functions": totalFunctions,
-		"total_edges":    s.graph.EdgeCount(),
-		"untested_count": len(untested.Items),
+		"total_edges":     s.graph.EdgeCount(),
+		"untested_count":  len(untested.Items),
 	}, nil
 }
 
@@ -387,9 +387,9 @@ func (s *Server) subgraph(funcName string, hops int) (interface{}, error) {
 	contract, _ := query.Contract(s.graph, funcName)
 
 	return map[string]interface{}{
-		"center":   contract,
-		"callers":  callers.Items,
-		"callees":  impact.Items,
-		"hops":     hops,
+		"center":  contract,
+		"callers": callers.Items,
+		"callees": impact.Items,
+		"hops":    hops,
 	}, nil
 }

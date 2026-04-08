@@ -11,9 +11,9 @@ import (
 
 func TestGoParser_Fixtures(t *testing.T) {
 	fixtures := []struct {
-		name    string
-		dir     string
-		files   []string // relative to fixture dir
+		name  string
+		dir   string
+		files []string // relative to fixture dir
 	}{
 		{"basic", "../../../testdata/go/basic", []string{"input/main.go"}},
 		{"nullable", "../../../testdata/go/nullable", []string{"input/service.go"}},

@@ -97,11 +97,11 @@ func TestStress(t *testing.T) {
 	// Query phase — collect results for summary table
 	// =========================================================================
 	type result struct {
-		name    string
-		dur     time.Duration
-		detail  string
-		err     error
-		pass    bool
+		name   string
+		dur    time.Duration
+		detail string
+		err    error
+		pass   bool
 	}
 	var results []result
 

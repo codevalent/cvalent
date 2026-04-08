@@ -7,10 +7,10 @@ import (
 )
 
 const (
-	DirName     = ".cvalent"
-	ConfigFile  = "config.json"
-	GraphFile   = "graph.db"
-	Version     = 1
+	DirName    = ".cvalent"
+	ConfigFile = "config.json"
+	GraphFile  = "graph.db"
+	Version    = 1
 )
 
 type Config struct {

@@ -114,10 +114,14 @@ func init() {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			g, err := openGraphForQuery()
-			if err != nil { return fmt.Errorf("open graph: %w (run cvalent build first)", err) }
+			if err != nil {
+				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
+			}
 			defer g.Close()
 			results, err := query.Callers(g, args[0], query.UnlimitedOpts())
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			fmt.Print(query.FormatInfo(results.Items))
 			return nil
 		},
@@ -127,10 +131,14 @@ func init() {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			g, err := openGraphForQuery()
-			if err != nil { return fmt.Errorf("open graph: %w (run cvalent build first)", err) }
+			if err != nil {
+				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
+			}
 			defer g.Close()
 			info, err := query.Contract(g, args[0])
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			fmt.Printf("%s\n  %s:%d-%d\n  Contract: %s\n  Completeness: %s\n",
 				info.QualifiedName, info.File, info.StartLine, info.EndLine, info.Contract, info.Completeness)
 			return nil
@@ -141,10 +149,14 @@ func init() {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			g, err := openGraphForQuery()
-			if err != nil { return fmt.Errorf("open graph: %w (run cvalent build first)", err) }
+			if err != nil {
+				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
+			}
 			defer g.Close()
 			results, err := query.Impact(g, args[0], depthFlag, query.UnlimitedOpts())
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			fmt.Printf("Impact of %s (depth %d):\n%s", args[0], depthFlag, query.FormatInfo(results.Items))
 			return nil
 		},
@@ -156,10 +168,14 @@ func init() {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			g, err := openGraphForQuery()
-			if err != nil { return fmt.Errorf("open graph: %w (run cvalent build first)", err) }
+			if err != nil {
+				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
+			}
 			defer g.Close()
 			results, err := query.Breaks(g, args[0], query.UnlimitedOpts())
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			fmt.Print(query.FormatInfo(results.Items))
 			return nil
 		},
@@ -168,10 +184,14 @@ func init() {
 		Use: "entry-points", Short: "Show functions with no incoming call edges",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			g, err := openGraphForQuery()
-			if err != nil { return fmt.Errorf("open graph: %w (run cvalent build first)", err) }
+			if err != nil {
+				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
+			}
 			defer g.Close()
 			results, err := query.EntryPoints(g, query.UnlimitedOpts())
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			fmt.Print(query.FormatInfo(results.Items))
 			return nil
 		},
@@ -181,10 +201,14 @@ func init() {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			g, err := openGraphForQuery()
-			if err != nil { return fmt.Errorf("open graph: %w (run cvalent build first)", err) }
+			if err != nil {
+				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
+			}
 			defer g.Close()
 			results, err := query.Exports(g, args[0], query.UnlimitedOpts())
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			fmt.Print(query.FormatInfo(results.Items))
 			return nil
 		},
@@ -193,10 +217,14 @@ func init() {
 		Use: "domains", Short: "List directory-based module groupings",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			g, err := openGraphForQuery()
-			if err != nil { return fmt.Errorf("open graph: %w (run cvalent build first)", err) }
+			if err != nil {
+				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
+			}
 			defer g.Close()
 			results, err := query.Domains(g, query.UnlimitedOpts())
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			for _, d := range results.Items {
 				fmt.Printf("  %-30s %d functions\n", d.Module, d.Functions)
 			}
@@ -208,10 +236,14 @@ func init() {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			g, err := openGraphForQuery()
-			if err != nil { return fmt.Errorf("open graph: %w (run cvalent build first)", err) }
+			if err != nil {
+				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
+			}
 			defer g.Close()
 			results, err := query.Domain(g, args[0], query.UnlimitedOpts())
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			fmt.Print(query.FormatInfo(results.Items))
 			return nil
 		},
@@ -220,10 +252,14 @@ func init() {
 		Use: "coupling", Short: "Show cross-module dependency density",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			g, err := openGraphForQuery()
-			if err != nil { return fmt.Errorf("open graph: %w (run cvalent build first)", err) }
+			if err != nil {
+				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
+			}
 			defer g.Close()
 			results, err := query.Coupling(g, query.UnlimitedOpts())
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			for _, c := range results.Items {
 				fmt.Printf("  %s -> %s  (%d edges)\n", c.FromModule, c.ToModule, c.EdgeCount)
 			}
@@ -234,10 +270,14 @@ func init() {
 		Use: "untested", Short: "Show application functions with no test coverage",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			g, err := openGraphForQuery()
-			if err != nil { return fmt.Errorf("open graph: %w (run cvalent build first)", err) }
+			if err != nil {
+				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
+			}
 			defer g.Close()
 			results, err := query.Untested(g, query.UnlimitedOpts())
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			fmt.Print(query.FormatInfo(results.Items))
 			return nil
 		},
@@ -247,10 +287,14 @@ func init() {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			g, err := openGraphForQuery()
-			if err != nil { return fmt.Errorf("open graph: %w (run cvalent build first)", err) }
+			if err != nil {
+				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
+			}
 			defer g.Close()
 			results, err := query.TestCoverage(g, args[0], query.UnlimitedOpts())
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			fmt.Print(query.FormatInfo(results.Items))
 			return nil
 		},

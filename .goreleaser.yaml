@@ -1,61 +1,35 @@
 version: 2
 
+# Rung 0 baseline goreleaser config. Pure-Go (CGO_ENABLED=0) so we don't
+# need zig cc, a C toolchain, or per-target build configs. Signing and
+# build provenance attestations land in AH-0316.23 — this stub leaves
+# room for them in the release.yml workflow without changing the build
+# matrix.
+
 builds:
-  - id: linux-amd64
+  - id: cvalent
     main: ./cmd/cvalent
     binary: cvalent
     env:
-      - CGO_ENABLED=1
-      - CC=zig cc -target x86_64-linux-gnu
+      - CGO_ENABLED=0
     goos:
       - linux
-    goarch:
-      - amd64
-    ldflags:
-      - -X main.version={{.Version}}
-
-  - id: linux-arm64
-    main: ./cmd/cvalent
-    binary: cvalent
-    env:
-      - CGO_ENABLED=1
-      - CC=zig cc -target aarch64-linux-gnu
-    goos:
-      - linux
-    goarch:
-      - arm64
-    ldflags:
-      - -X main.version={{.Version}}
-
-  - id: darwin-amd64
-    main: ./cmd/cvalent
-    binary: cvalent
-    env:
-      - CGO_ENABLED=1
-      - CC=zig cc -target x86_64-macos
-    goos:
       - darwin
     goarch:
       - amd64
-    ldflags:
-      - -X main.version={{.Version}}
-
-  - id: darwin-arm64
-    main: ./cmd/cvalent
-    binary: cvalent
-    env:
-      - CGO_ENABLED=1
-      - CC=zig cc -target aarch64-macos
-    goos:
-      - darwin
-    goarch:
       - arm64
+    flags:
+      - -trimpath
     ldflags:
-      - -X main.version={{.Version}}
+      - -s -w -X main.version={{.Version}}
 
 archives:
-  - format: tar.gz
+  - id: default
+    formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: darwin
+        formats: [zip]
 
 checksum:
   name_template: checksums.txt
