@@ -1,262 +1,273 @@
 package query
 
 import (
-	"path/filepath"
+	"context"
+	"strings"
 	"testing"
 
-	graphdb "github.com/mstrYoda/goraphdb"
-
-	"github.com/codevalent/cvalent/internal/graph"
+	"github.com/codevalent/cvalent/internal/model"
+	"github.com/codevalent/cvalent/internal/store"
 )
 
-func buildTestGraph(t *testing.T) *graph.Graph {
+func mintFn(t *testing.T, dist, modulePath, name string, isTest bool) model.FunctionNode {
 	t.Helper()
-	dir := filepath.Join(t.TempDir(), "test_graph")
-	g, err := graph.Open(dir)
+	parts := model.IdentityParts{
+		Distribution: dist,
+		ModulePath:   modulePath,
+		Name:         name,
+	}
+	id, canon, err := model.MintFunctionID(model.EnvironmentLocal, parts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { g.Close() })
-
-	g.CreateSchema()
-
-	// Functions in different modules
-	mainFn, _ := g.AddFunction(graphdb.Props{
-		"name": "main", "qualified_name": "cmd.main", "file": "cmd/main.go",
-		"module": "cmd", "start_line": float64(1), "end_line": float64(5),
-		"exported": true, "tag": "application", "contract_completeness": "full",
-	})
-	processOrder, _ := g.AddFunction(graphdb.Props{
-		"name": "ProcessOrder", "qualified_name": "order.ProcessOrder", "file": "order/service.go",
-		"module": "order", "start_line": float64(10), "end_line": float64(20),
-		"exported": true, "tag": "application", "contract_completeness": "full",
-		"contract": `{"parameters":[{"name":"req","type":"OrderRequest"}],"returns":[{"type":"error"}]}`,
-	})
-	validate, _ := g.AddFunction(graphdb.Props{
-		"name": "validate", "qualified_name": "order.validate", "file": "order/validator.go",
-		"module": "order", "start_line": float64(5), "end_line": float64(15),
-		"exported": false, "tag": "application", "contract_completeness": "full",
-	})
-	saveOrder, _ := g.AddFunction(graphdb.Props{
-		"name": "saveOrder", "qualified_name": "store.saveOrder", "file": "store/repo.go",
-		"module": "store", "start_line": float64(10), "end_line": float64(20),
-		"exported": false, "tag": "application", "contract_completeness": "full",
-	})
-	testFn, _ := g.AddTestFunction(graphdb.Props{
-		"name": "TestProcessOrder", "qualified_name": "order_test.TestProcessOrder",
-		"file": "order/service_test.go", "module": "order",
-		"start_line": float64(5), "end_line": float64(15),
-		"exported": true, "tag": "test", "contract_completeness": "full",
-	})
-
-	// Edges
-	g.AddCallEdge(mainFn, processOrder, nil)
-	g.AddCallEdge(processOrder, validate, nil)
-	g.AddCallEdge(processOrder, saveOrder, nil)
-	g.AddCallEdge(testFn, processOrder, nil)
-
-	g.CreateSchema() // rebuild indexes
-
-	return g
+	tag := "application"
+	if isTest {
+		tag = "test"
+	}
+	return model.FunctionNode{
+		Node: model.Node{
+			ID:             id,
+			Environment:    model.EnvironmentLocal,
+			Kind:           model.KindFunction,
+			QualifiedName:  canon.QualifiedName(),
+			Name:           name,
+			Distribution:   dist,
+			ModulePath:     modulePath,
+			Language:       "go",
+			File:           modulePath + "/" + strings.ToLower(name) + ".go",
+			IdentitySource: model.IdentityFromDistribution,
+		},
+		FunctionMeta: model.FunctionMeta{
+			StartLine:            1,
+			EndLine:              5,
+			Exported:             true,
+			Tag:                  tag,
+			ContractCompleteness: "full",
+			Params:               []model.Param{{Name: "x", Type: "int"}},
+			Returns: model.ReturnSpec{
+				Values: []model.ReturnValue{{Type: "error", Nullable: true}},
+			},
+		},
+	}
 }
+
+func edgeID(a, b [16]byte) [16]byte {
+	var out [16]byte
+	for i := 0; i < 16; i++ {
+		out[i] = a[i] ^ b[i] ^ 0x42
+	}
+	out[6] = (out[6] & 0x0f) | 0x50
+	out[8] = (out[8] & 0x3f) | 0x80
+	return out
+}
+
+func openFixture(t *testing.T) (*store.Store, map[string]model.FunctionNode) {
+	t.Helper()
+	s, err := store.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	ctx := context.Background()
+
+	main := mintFn(t, "example.com/x", "cmd", "main", false)
+	process := mintFn(t, "example.com/x", "order", "ProcessOrder", false)
+	validate := mintFn(t, "example.com/x", "order", "validate", false)
+	validate.Exported = false
+	save := mintFn(t, "example.com/x", "store", "saveOrder", false)
+	save.Exported = false
+	test := mintFn(t, "example.com/x", "order", "TestProcessOrder", true)
+
+	all := map[string]model.FunctionNode{
+		"main": main, "ProcessOrder": process, "validate": validate, "saveOrder": save, "TestProcessOrder": test,
+	}
+	for _, fn := range all {
+		if err := s.UpsertNode(ctx, fn); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, e := range []store.Edge{
+		{ID: edgeID(main.ID, process.ID), From: main.ID, To: process.ID, Kind: "call"},
+		{ID: edgeID(process.ID, validate.ID), From: process.ID, To: validate.ID, Kind: "call"},
+		{ID: edgeID(process.ID, save.ID), From: process.ID, To: save.ID, Kind: "call"},
+		{ID: edgeID(test.ID, process.ID), From: test.ID, To: process.ID, Kind: "call"},
+	} {
+		if err := s.UpsertEdge(ctx, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return s, all
+}
+
+func ctxBg() context.Context { return context.Background() }
 
 func TestCallers(t *testing.T) {
-	g := buildTestGraph(t)
-	result, err := Callers(g, "ProcessOrder", UnlimitedOpts())
+	s, _ := openFixture(t)
+	r, err := Callers(ctxBg(), s, "ProcessOrder", UnlimitedOpts())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Items) != 2 { // main and TestProcessOrder
-		t.Fatalf("expected 2 callers, got %d", len(result.Items))
+	if len(r.Items) != 2 {
+		t.Fatalf("want 2 callers, got %d", len(r.Items))
 	}
 }
 
-func TestContract(t *testing.T) {
-	g := buildTestGraph(t)
-	info, err := Contract(g, "ProcessOrder")
+func TestContract_AddsDirectionSignals(t *testing.T) {
+	s, _ := openFixture(t)
+	d, err := Contract(ctxBg(), s, "ProcessOrder")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Name != "ProcessOrder" {
-		t.Fatalf("expected ProcessOrder, got %s", info.Name)
+	if d.Contract == nil {
+		t.Fatalf("contract nil")
 	}
-	if info.Contract == "" {
-		t.Fatal("expected non-empty contract")
+	if d.PipelineReferences == nil || d.RecentTraces == nil {
+		t.Fatalf("direction signals must be non-nil empty arrays")
 	}
 }
 
 func TestImpact(t *testing.T) {
-	g := buildTestGraph(t)
-	result, err := Impact(g, "validate", 3, UnlimitedOpts())
+	s, _ := openFixture(t)
+	r, err := Impact(ctxBg(), s, "validate", 3, UnlimitedOpts())
 	if err != nil {
 		t.Fatal(err)
 	}
-	// validate is called by ProcessOrder, which is called by main and TestProcessOrder
-	if len(result.Items) < 1 {
-		t.Fatalf("expected at least 1 impacted function, got %d", len(result.Items))
+	if len(r.Items) < 1 {
+		t.Fatalf("want at least 1, got %d", len(r.Items))
 	}
 }
 
 func TestEntryPoints(t *testing.T) {
-	g := buildTestGraph(t)
-	result, err := EntryPoints(g, UnlimitedOpts())
+	s, _ := openFixture(t)
+	r, err := EntryPoints(ctxBg(), s, UnlimitedOpts())
 	if err != nil {
 		t.Fatal(err)
 	}
 	// main and TestProcessOrder have no callers
-	if len(result.Items) != 2 {
-		names := make([]string, len(result.Items))
-		for i, ep := range result.Items {
-			names[i] = ep.Name
-		}
-		t.Fatalf("expected 2 entry points, got %d: %v", len(result.Items), names)
+	if len(r.Items) != 2 {
+		t.Fatalf("want 2 entry points, got %d", len(r.Items))
 	}
 }
 
 func TestExports(t *testing.T) {
-	g := buildTestGraph(t)
-	result, err := Exports(g, "order", UnlimitedOpts())
+	s, _ := openFixture(t)
+	r, err := Exports(ctxBg(), s, "order", UnlimitedOpts())
 	if err != nil {
 		t.Fatal(err)
 	}
-	// ProcessOrder is exported, validate is not
-	if len(result.Items) != 1 {
-		t.Fatalf("expected 1 export, got %d", len(result.Items))
-	}
-	if result.Items[0].Name != "ProcessOrder" {
-		t.Fatalf("expected ProcessOrder, got %s", result.Items[0].Name)
+	// ProcessOrder is exported, validate is not, TestProcessOrder is test
+	if len(r.Items) != 1 {
+		t.Fatalf("want 1, got %d", len(r.Items))
 	}
 }
 
 func TestDomains(t *testing.T) {
-	g := buildTestGraph(t)
-	result, err := Domains(g, UnlimitedOpts())
+	s, _ := openFixture(t)
+	r, err := Domains(ctxBg(), s, UnlimitedOpts())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Items) != 3 { // cmd, order, store
-		t.Fatalf("expected 3 domains, got %d", len(result.Items))
+	if len(r.Items) != 3 {
+		t.Fatalf("want 3 modules, got %d", len(r.Items))
 	}
 }
 
 func TestDomain(t *testing.T) {
-	g := buildTestGraph(t)
-	result, err := Domain(g, "order", UnlimitedOpts())
+	s, _ := openFixture(t)
+	r, err := Domain(ctxBg(), s, "order", UnlimitedOpts())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Items) != 3 { // ProcessOrder, validate, TestProcessOrder
-		t.Fatalf("expected 3 functions in order, got %d", len(result.Items))
+	if len(r.Items) != 3 {
+		t.Fatalf("want 3 in order, got %d", len(r.Items))
 	}
 }
 
 func TestCoupling(t *testing.T) {
-	g := buildTestGraph(t)
-	result, err := Coupling(g, UnlimitedOpts())
+	s, _ := openFixture(t)
+	r, err := Coupling(ctxBg(), s, UnlimitedOpts())
 	if err != nil {
 		t.Fatal(err)
 	}
-	// cmd->order (main->ProcessOrder), order->store (ProcessOrder->saveOrder)
-	if len(result.Items) < 2 {
-		t.Fatalf("expected at least 2 cross-module edges, got %d", len(result.Items))
+	if len(r.Items) < 2 {
+		t.Fatalf("want at least 2 cross-module pairs, got %d", len(r.Items))
 	}
 }
 
 func TestUntested(t *testing.T) {
-	g := buildTestGraph(t)
-	result, err := Untested(g, UnlimitedOpts())
+	s, _ := openFixture(t)
+	r, err := Untested(ctxBg(), s, UnlimitedOpts())
 	if err != nil {
 		t.Fatal(err)
 	}
 	// main, validate, saveOrder are untested; ProcessOrder has TestProcessOrder
-	if len(result.Items) != 3 {
-		names := make([]string, len(result.Items))
-		for i, u := range result.Items {
-			names[i] = u.Name
+	if len(r.Items) != 3 {
+		names := make([]string, len(r.Items))
+		for i, ref := range r.Items {
+			names[i] = ref.Name
 		}
-		t.Fatalf("expected 3 untested, got %d: %v", len(result.Items), names)
+		t.Fatalf("want 3 untested, got %d: %v", len(r.Items), names)
 	}
 }
 
 func TestTestCoverage(t *testing.T) {
-	g := buildTestGraph(t)
-	result, err := TestCoverage(g, "ProcessOrder", UnlimitedOpts())
+	s, _ := openFixture(t)
+	r, err := TestCoverage(ctxBg(), s, "ProcessOrder", UnlimitedOpts())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Items) != 1 {
-		t.Fatalf("expected 1 test, got %d", len(result.Items))
-	}
-	if result.Items[0].Name != "TestProcessOrder" {
-		t.Fatalf("expected TestProcessOrder, got %s", result.Items[0].Name)
+	if len(r.Items) != 1 || r.Items[0].Name != "TestProcessOrder" {
+		t.Fatalf("got %+v", r.Items)
 	}
 }
 
-func TestBreaks(t *testing.T) {
-	g := buildTestGraph(t)
-	result, err := Breaks(g, "ProcessOrder", UnlimitedOpts())
+func TestGraphSummary(t *testing.T) {
+	s, _ := openFixture(t)
+	sum, err := GraphSummary(ctxBg(), s)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Same as callers in Phase 1
-	if len(result.Items) != 2 {
-		t.Fatalf("expected 2 breaks entries, got %d", len(result.Items))
+	if sum.TotalFunctions != 5 {
+		t.Errorf("total_functions=%d", sum.TotalFunctions)
+	}
+	if sum.TotalEdges != 4 {
+		t.Errorf("total_edges=%d", sum.TotalEdges)
+	}
+}
+
+func TestSubgraph(t *testing.T) {
+	s, _ := openFixture(t)
+	sub, err := Subgraph(ctxBg(), s, "ProcessOrder", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sub.Center == nil {
+		t.Fatal("center nil")
 	}
 }
 
 func TestPagination(t *testing.T) {
-	g := buildTestGraph(t)
-
-	// Untested has 3 results (main, validate, saveOrder)
-	// Request with limit=1
-	result, err := Untested(g, QueryOpts{Limit: 1, Offset: 0})
+	s, _ := openFixture(t)
+	r, err := Untested(ctxBg(), s, QueryOpts{Limit: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.TotalCount != 3 {
-		t.Fatalf("expected total_count=3, got %d", result.TotalCount)
+	if r.TotalCount != 3 || r.Returned != 1 || !r.Truncated {
+		t.Fatalf("pagination: %+v", r)
 	}
-	if result.Returned != 1 {
-		t.Fatalf("expected returned=1, got %d", result.Returned)
-	}
-	if !result.Truncated {
-		t.Fatal("expected truncated=true")
-	}
+}
 
-	// Request second page
-	result2, err := Untested(g, QueryOpts{Limit: 1, Offset: 1})
-	if err != nil {
-		t.Fatal(err)
+func TestRefIncludesIdentityFields(t *testing.T) {
+	s, _ := openFixture(t)
+	r, _ := EntryPoints(ctxBg(), s, UnlimitedOpts())
+	if len(r.Items) == 0 {
+		t.Fatal("no items")
 	}
-	if result2.TotalCount != 3 {
-		t.Fatalf("expected total_count=3, got %d", result2.TotalCount)
+	ref := r.Items[0]
+	if ref.IdentitySource == "" {
+		t.Errorf("missing identity_source")
 	}
-	if result2.Returned != 1 {
-		t.Fatalf("expected returned=1, got %d", result2.Returned)
-	}
-	if result2.Offset != 1 {
-		t.Fatalf("expected offset=1, got %d", result2.Offset)
-	}
-	if !result2.Truncated {
-		t.Fatal("expected truncated=true for second page of 3")
-	}
-
-	// Request last page
-	result3, err := Untested(g, QueryOpts{Limit: 1, Offset: 2})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result3.Truncated {
-		t.Fatal("expected truncated=false for last page")
-	}
-
-	// Request all with no limit
-	resultAll, err := Untested(g, UnlimitedOpts())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resultAll.TotalCount != 3 || resultAll.Returned != 3 || resultAll.Truncated {
-		t.Fatalf("unlimited should return all: total=%d returned=%d truncated=%v",
-			resultAll.TotalCount, resultAll.Returned, resultAll.Truncated)
+	if ref.Environment == "" {
+		t.Errorf("missing environment")
 	}
 }

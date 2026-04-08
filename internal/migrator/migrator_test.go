@@ -8,31 +8,27 @@ import (
 	"testing"
 
 	graphdb "github.com/mstrYoda/goraphdb"
-
-	"github.com/codevalent/cvalent/internal/graph"
 )
 
-// seedLegacy creates a small GoraphDB store at `path` with two
-// Function nodes that look like Stage 0 parser output. We avoid
-// requiring a full filesystem layout — the migrator will fall back to
-// repo identity for any node whose source file no longer exists, which
-// exercises the warning path explicitly.
+// seedLegacy creates a small GoraphDB store at `path` with Function
+// nodes that look like Stage 0 parser output. The migrator will fall
+// back to repo identity for any node whose source file no longer
+// exists, which exercises the warning path.
 func seedLegacy(t *testing.T, path string, fns []map[string]any) {
 	t.Helper()
-	g, err := graph.Open(path)
+	gopts := graphdb.DefaultOptions()
+	gopts.NoSync = true
+	g, err := graphdb.Open(path, gopts)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer g.Close()
-	if err := g.CreateSchema(); err != nil {
-		t.Fatal(err)
-	}
 	for _, p := range fns {
 		props := graphdb.Props{}
 		for k, v := range p {
 			props[k] = v
 		}
-		if _, err := g.AddFunction(props); err != nil {
+		if _, err := g.AddNodeWithLabels([]string{"Function"}, props); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
 	}

@@ -1,34 +1,37 @@
+// Package mcp implements the cvalent MCP (Model Context Protocol)
+// server over stdio. The server hosts the 13 tools defined by Q9.
+//
+// Friction wrapping (the `boundaries` envelope on seven of the tools)
+// lives in internal/friction and lands as AH-0316.16/.17.
 package mcp
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
 
-	"github.com/codevalent/cvalent/internal/graph"
 	"github.com/codevalent/cvalent/internal/query"
+	"github.com/codevalent/cvalent/internal/store"
 )
 
-// Server implements MCP (Model Context Protocol) over stdio.
+// Server implements MCP over stdio.
 type Server struct {
-	graph   *graph.Graph
+	store   *store.Store
 	session *Session
 }
 
-// Session scaffolds context tracking for future Level 1-3 enhancements.
+// Session scaffolds context tracking for future hosted-store sessions.
 type Session struct {
 	QueriedFunctions []string `json:"queried_functions"`
 	ActiveModule     string   `json:"active_module"`
 }
 
-// NewServer creates an MCP server backed by the given graph.
-func NewServer(g *graph.Graph) *Server {
-	return &Server{
-		graph:   g,
-		session: &Session{},
-	}
+// NewServer creates an MCP server backed by the given store.
+func NewServer(s *store.Store) *Server {
+	return &Server{store: s, session: &Session{}}
 }
 
 // JSON-RPC types
@@ -51,7 +54,6 @@ type rpcError struct {
 	Message string `json:"message"`
 }
 
-// Tool definitions
 type toolDef struct {
 	Name        string      `json:"name"`
 	Description string      `json:"description"`
@@ -98,17 +100,15 @@ func (s *Server) tools() []toolDef {
 		{Name: "callers", Description: "List all functions that directly call the specified function.",
 			InputSchema: inputSchema{Type: "object", Properties: withPagination(fnProp), Required: []string{"function"}}},
 		{Name: "contract", Description: "Return the parameter and return-type contract of a function.",
-			InputSchema: inputSchema{Type: "object", Properties: map[string]propDef{
-				"function": {Type: "string", Description: "Fully qualified or short function name to look up"},
-			}, Required: []string{"function"}}},
+			InputSchema: inputSchema{Type: "object", Properties: fnProp, Required: []string{"function"}}},
 		{Name: "impact", Description: "Trace downstream callers to N levels, showing the blast radius of a change.",
 			InputSchema: inputSchema{Type: "object", Properties: withPagination(map[string]propDef{
 				"function": {Type: "string", Description: "Fully qualified or short function name to look up"},
-				"depth":    {Type: "number", Description: "Maximum traversal depth (default: 3, omit to use default)", Default: numPtr(3), Minimum: numPtr(1), Maximum: numPtr(10)},
+				"depth":    {Type: "number", Description: "Maximum traversal depth (default: 3)", Default: numPtr(3), Minimum: numPtr(1), Maximum: numPtr(10)},
 			}), Required: []string{"function"}}},
 		{Name: "breaks", Description: "Detect callers whose argument shape mismatches the function contract.",
 			InputSchema: inputSchema{Type: "object", Properties: withPagination(fnProp), Required: []string{"function"}}},
-		{Name: "entry_points", Description: "List all functions with no incoming call edges (top-level entry points).",
+		{Name: "entry_points", Description: "List all functions with no incoming call edges.",
 			InputSchema: inputSchema{Type: "object", Properties: withPagination(nil)}},
 		{Name: "exports", Description: "List the public (exported) functions of a module.",
 			InputSchema: inputSchema{Type: "object", Properties: withPagination(modProp), Required: []string{"module"}}},
@@ -127,7 +127,7 @@ func (s *Server) tools() []toolDef {
 		{Name: "subgraph", Description: "Extract the N-hop neighborhood of a function with contracts and edges.",
 			InputSchema: inputSchema{Type: "object", Properties: map[string]propDef{
 				"function": {Type: "string", Description: "Fully qualified or short function name to look up"},
-				"hops":     {Type: "number", Description: "Neighborhood radius in call-graph hops (default: 2, omit to use default)", Default: numPtr(2), Minimum: numPtr(1), Maximum: numPtr(5)},
+				"hops":     {Type: "number", Description: "Neighborhood radius in call-graph hops (default: 2)", Default: numPtr(2), Minimum: numPtr(1), Maximum: numPtr(5)},
 			}, Required: []string{"function"}}},
 	}
 }
@@ -135,19 +135,17 @@ func (s *Server) tools() []toolDef {
 // Serve runs the MCP server reading from r and writing to w.
 func (s *Server) Serve(r io.Reader, w io.Writer) error {
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB buffer
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-
 		var req jsonrpcRequest
 		if err := json.Unmarshal([]byte(line), &req); err != nil {
 			continue
 		}
-
 		resp := s.handleRequest(req)
 		data, _ := json.Marshal(resp)
 		fmt.Fprintf(w, "%s\n", data)
@@ -165,7 +163,7 @@ func (s *Server) handleRequest(req jsonrpcRequest) jsonrpcResponse {
 				"capabilities":    map[string]interface{}{"tools": map[string]interface{}{}},
 				"serverInfo": map[string]interface{}{
 					"name":    "cvalent",
-					"version": "0.1.0-dev",
+					"version": "0.2.0-dev",
 				},
 			},
 		}
@@ -195,12 +193,10 @@ func (s *Server) handleToolCall(req jsonrpcRequest) jsonrpcResponse {
 		return jsonrpcResponse{JSONRPC: "2.0", ID: req.ID,
 			Error: &rpcError{Code: -32602, Message: "invalid params"}}
 	}
-
 	var args map[string]interface{}
 	if params.Arguments != nil {
 		json.Unmarshal(params.Arguments, &args)
 	}
-
 	result, err := s.callTool(params.Name, args)
 	if err != nil {
 		return jsonrpcResponse{JSONRPC: "2.0", ID: req.ID,
@@ -211,7 +207,6 @@ func (s *Server) handleToolCall(req jsonrpcRequest) jsonrpcResponse {
 			},
 		}
 	}
-
 	text, _ := json.Marshal(result)
 	return jsonrpcResponse{JSONRPC: "2.0", ID: req.ID,
 		Result: map[string]interface{}{
@@ -267,6 +262,7 @@ func wrapPaged[T any](pr query.PagedResult[T]) pagedEnvelope {
 }
 
 func (s *Server) callTool(name string, args map[string]interface{}) (interface{}, error) {
+	ctx := context.Background()
 	getStr := func(key string) string {
 		if v, ok := args[key]; ok {
 			if s, ok := v.(string); ok {
@@ -277,119 +273,82 @@ func (s *Server) callTool(name string, args map[string]interface{}) (interface{}
 	}
 	getInt := func(key string, def int) int {
 		if v, ok := args[key]; ok {
-			switch n := v.(type) {
-			case float64:
+			if n, ok := v.(float64); ok {
 				return int(n)
 			}
 		}
 		return def
 	}
-
 	opts := mcpOpts(args)
 
 	switch name {
 	case "callers":
-		r, err := query.Callers(s.graph, getStr("function"), opts)
+		r, err := query.Callers(ctx, s.store, getStr("function"), opts)
 		if err != nil {
 			return nil, err
 		}
 		return wrapPaged(r), nil
 	case "contract":
-		return query.Contract(s.graph, getStr("function"))
+		return query.Contract(ctx, s.store, getStr("function"))
 	case "impact":
-		r, err := query.Impact(s.graph, getStr("function"), getInt("depth", 3), opts)
+		r, err := query.Impact(ctx, s.store, getStr("function"), getInt("depth", 3), opts)
 		if err != nil {
 			return nil, err
 		}
 		return wrapPaged(r), nil
 	case "breaks":
-		r, err := query.Breaks(s.graph, getStr("function"), opts)
+		r, err := query.Breaks(ctx, s.store, getStr("function"), opts)
 		if err != nil {
 			return nil, err
 		}
 		return wrapPaged(r), nil
 	case "entry_points":
-		r, err := query.EntryPoints(s.graph, opts)
+		r, err := query.EntryPoints(ctx, s.store, opts)
 		if err != nil {
 			return nil, err
 		}
 		return wrapPaged(r), nil
 	case "exports":
-		r, err := query.Exports(s.graph, getStr("module"), opts)
+		r, err := query.Exports(ctx, s.store, getStr("module"), opts)
 		if err != nil {
 			return nil, err
 		}
 		return wrapPaged(r), nil
 	case "domains":
-		r, err := query.Domains(s.graph, opts)
+		r, err := query.Domains(ctx, s.store, opts)
 		if err != nil {
 			return nil, err
 		}
 		return wrapPaged(r), nil
 	case "domain":
-		r, err := query.Domain(s.graph, getStr("module"), opts)
+		r, err := query.Domain(ctx, s.store, getStr("module"), opts)
 		if err != nil {
 			return nil, err
 		}
 		return wrapPaged(r), nil
 	case "coupling":
-		r, err := query.Coupling(s.graph, opts)
+		r, err := query.Coupling(ctx, s.store, opts)
 		if err != nil {
 			return nil, err
 		}
 		return wrapPaged(r), nil
 	case "untested":
-		r, err := query.Untested(s.graph, opts)
+		r, err := query.Untested(ctx, s.store, opts)
 		if err != nil {
 			return nil, err
 		}
 		return wrapPaged(r), nil
 	case "test_coverage":
-		r, err := query.TestCoverage(s.graph, getStr("function"), opts)
+		r, err := query.TestCoverage(ctx, s.store, getStr("function"), opts)
 		if err != nil {
 			return nil, err
 		}
 		return wrapPaged(r), nil
 	case "graph_summary":
-		return s.graphSummary()
+		return query.GraphSummary(ctx, s.store)
 	case "subgraph":
-		return s.subgraph(getStr("function"), getInt("hops", 2))
+		return query.Subgraph(ctx, s.store, getStr("function"), getInt("hops", 2))
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", name)
 	}
-}
-
-func (s *Server) graphSummary() (interface{}, error) {
-	unlimited := query.UnlimitedOpts()
-	domains, _ := query.Domains(s.graph, unlimited)
-	untested, _ := query.Untested(s.graph, unlimited)
-
-	totalFunctions := 0
-	for _, d := range domains.Items {
-		totalFunctions += d.Functions
-	}
-
-	return map[string]interface{}{
-		"modules":         domains.Items,
-		"total_functions": totalFunctions,
-		"total_edges":     s.graph.EdgeCount(),
-		"untested_count":  len(untested.Items),
-	}, nil
-}
-
-func (s *Server) subgraph(funcName string, hops int) (interface{}, error) {
-	if hops <= 0 {
-		hops = 2
-	}
-	unlimited := query.UnlimitedOpts()
-	impact, _ := query.Impact(s.graph, funcName, hops, unlimited)
-	callers, _ := query.Callers(s.graph, funcName, unlimited)
-	contract, _ := query.Contract(s.graph, funcName)
-
-	return map[string]interface{}{
-		"center":  contract,
-		"callers": callers.Items,
-		"callees": impact.Items,
-		"hops":    hops,
-	}, nil
 }

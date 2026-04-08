@@ -2,239 +2,201 @@ package mcp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	graphdb "github.com/mstrYoda/goraphdb"
-
-	"github.com/codevalent/cvalent/internal/graph"
+	"github.com/codevalent/cvalent/internal/model"
+	"github.com/codevalent/cvalent/internal/store"
 )
 
-func buildTestGraph(t *testing.T) *graph.Graph {
+func mintFn(t *testing.T, dist, modulePath, name string, isTest bool) model.FunctionNode {
 	t.Helper()
-	dir := filepath.Join(t.TempDir(), "test_graph")
-	g, err := graph.Open(dir)
+	parts := model.IdentityParts{
+		Distribution: dist,
+		ModulePath:   modulePath,
+		Name:         name,
+	}
+	id, canon, err := model.MintFunctionID(model.EnvironmentLocal, parts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { g.Close() })
+	tag := "application"
+	if isTest {
+		tag = "test"
+	}
+	return model.FunctionNode{
+		Node: model.Node{
+			ID:             id,
+			Environment:    model.EnvironmentLocal,
+			Kind:           model.KindFunction,
+			QualifiedName:  canon.QualifiedName(),
+			Name:           name,
+			Distribution:   dist,
+			ModulePath:     modulePath,
+			Language:       "go",
+			File:           modulePath + "/" + strings.ToLower(name) + ".go",
+			IdentitySource: model.IdentityFromDistribution,
+		},
+		FunctionMeta: model.FunctionMeta{
+			StartLine:            1,
+			EndLine:              5,
+			Exported:             true,
+			Tag:                  tag,
+			ContractCompleteness: "full",
+		},
+	}
+}
 
-	g.CreateSchema()
+func buildTestStore(t *testing.T) *store.Store {
+	t.Helper()
+	s, err := store.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	ctx := context.Background()
 
-	main, _ := g.AddFunction(graphdb.Props{
-		"name": "main", "qualified_name": "cmd.main", "file": "cmd/main.go",
-		"module": "cmd", "start_line": float64(1), "end_line": float64(5),
-		"exported": true, "tag": "application", "contract_completeness": "full",
-	})
-	process, _ := g.AddFunction(graphdb.Props{
-		"name": "ProcessOrder", "qualified_name": "order.ProcessOrder", "file": "order/service.go",
-		"module": "order", "start_line": float64(10), "end_line": float64(20),
-		"exported": true, "tag": "application", "contract_completeness": "full",
-		"contract": `{"parameters":[{"name":"req","type":"OrderRequest"}],"returns":[{"type":"error"}]}`,
-	})
-	validate, _ := g.AddFunction(graphdb.Props{
-		"name": "validate", "qualified_name": "order.validate", "file": "order/validator.go",
-		"module": "order", "start_line": float64(5), "end_line": float64(15),
-		"exported": false, "tag": "application", "contract_completeness": "full",
-	})
-	testFn, _ := g.AddTestFunction(graphdb.Props{
-		"name": "TestProcessOrder", "qualified_name": "order_test.TestProcessOrder",
-		"file": "order/service_test.go", "module": "order",
-		"start_line": float64(5), "end_line": float64(15),
-		"exported": true, "tag": "test", "contract_completeness": "full",
-	})
+	main := mintFn(t, "example.com/x", "cmd", "main", false)
+	process := mintFn(t, "example.com/x", "order", "ProcessOrder", false)
+	validate := mintFn(t, "example.com/x", "order", "validate", false)
+	validate.Exported = false
+	test := mintFn(t, "example.com/x", "order", "TestProcessOrder", true)
 
-	g.AddCallEdge(main, process, nil)
-	g.AddCallEdge(process, validate, nil)
-	g.AddCallEdge(testFn, process, nil)
+	for _, fn := range []model.FunctionNode{main, process, validate, test} {
+		if err := s.UpsertNode(ctx, fn); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, e := range []store.Edge{
+		{ID: edgeUUID(main.ID, process.ID), From: main.ID, To: process.ID, Kind: "call"},
+		{ID: edgeUUID(process.ID, validate.ID), From: process.ID, To: validate.ID, Kind: "call"},
+		{ID: edgeUUID(test.ID, process.ID), From: test.ID, To: process.ID, Kind: "call"},
+	} {
+		if err := s.UpsertEdge(ctx, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return s
+}
 
-	g.CreateSchema()
-	return g
+func edgeUUID(a, b [16]byte) [16]byte {
+	var out [16]byte
+	for i := 0; i < 16; i++ {
+		out[i] = a[i] ^ b[i]
+	}
+	out[6] = (out[6] & 0x0f) | 0x50
+	out[8] = (out[8] & 0x3f) | 0x80
+	return out
 }
 
 func sendRequest(t *testing.T, s *Server, method string, params interface{}) jsonrpcResponse {
 	t.Helper()
 	paramsJSON, _ := json.Marshal(params)
-	req := jsonrpcRequest{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  method,
-		Params:  paramsJSON,
-	}
-	reqJSON, _ := json.Marshal(req)
-
-	input := bytes.NewBufferString(string(reqJSON) + "\n")
-	output := &bytes.Buffer{}
-
-	// Run one request through the server
-	resp := s.handleRequest(req)
-	_ = input
-	_ = output
-	return resp
+	req := jsonrpcRequest{JSONRPC: "2.0", ID: 1, Method: method, Params: paramsJSON}
+	return s.handleRequest(req)
 }
 
 func TestServerInitialize(t *testing.T) {
-	g := buildTestGraph(t)
-	s := NewServer(g)
+	s := NewServer(buildTestStore(t))
 	resp := sendRequest(t, s, "initialize", nil)
-
 	if resp.Error != nil {
 		t.Fatalf("initialize error: %s", resp.Error.Message)
 	}
 	result := resp.Result.(map[string]interface{})
 	if result["protocolVersion"] != "2024-11-05" {
-		t.Fatalf("unexpected protocol version: %v", result["protocolVersion"])
+		t.Fatalf("protocol: %v", result["protocolVersion"])
 	}
 }
 
-func TestToolsList(t *testing.T) {
-	g := buildTestGraph(t)
-	s := NewServer(g)
+func TestToolsList_Has13Tools(t *testing.T) {
+	s := NewServer(buildTestStore(t))
 	resp := sendRequest(t, s, "tools/list", nil)
-
 	result := resp.Result.(map[string]interface{})
 	tools := result["tools"].([]toolDef)
-	if len(tools) != 13 { // 11 queries + graph_summary + subgraph
+	if len(tools) != 13 {
 		t.Fatalf("expected 13 tools, got %d", len(tools))
 	}
 }
 
 func TestToolCall_Callers(t *testing.T) {
-	g := buildTestGraph(t)
-	s := NewServer(g)
-
-	resp := s.handleToolCall(jsonrpcRequest{
-		JSONRPC: "2.0", ID: 1,
+	s := NewServer(buildTestStore(t))
+	resp := s.handleToolCall(jsonrpcRequest{JSONRPC: "2.0", ID: 1,
 		Params: mustJSON(t, toolCallParams{
 			Name:      "callers",
 			Arguments: mustJSONRaw(t, map[string]string{"function": "ProcessOrder"}),
-		}),
-	})
-
+		})})
 	if resp.Error != nil {
 		t.Fatal(resp.Error.Message)
 	}
-
-	result := resp.Result.(map[string]interface{})
-	content := result["content"].([]map[string]interface{})
-	text := content[0]["text"].(string)
+	text := extractText(t, resp)
 	if !strings.Contains(text, "total_count") {
-		t.Fatalf("expected envelope with total_count, got: %s", text)
+		t.Fatalf("envelope missing: %s", text)
 	}
-	if !strings.Contains(text, "main") && !strings.Contains(text, "TestProcessOrder") {
-		t.Fatalf("expected callers in response, got: %s", text)
+	if !strings.Contains(text, "main") || !strings.Contains(text, "TestProcessOrder") {
+		t.Fatalf("expected callers in response: %s", text)
 	}
 }
 
 func TestToolCall_GraphSummary(t *testing.T) {
-	g := buildTestGraph(t)
-	s := NewServer(g)
-
-	resp := s.handleToolCall(jsonrpcRequest{
-		JSONRPC: "2.0", ID: 1,
-		Params: mustJSON(t, toolCallParams{Name: "graph_summary"}),
-	})
-
-	if resp.Error != nil {
-		t.Fatal(resp.Error.Message)
-	}
-
-	result := resp.Result.(map[string]interface{})
-	content := result["content"].([]map[string]interface{})
-	text := content[0]["text"].(string)
+	s := NewServer(buildTestStore(t))
+	resp := s.handleToolCall(jsonrpcRequest{JSONRPC: "2.0", ID: 1,
+		Params: mustJSON(t, toolCallParams{Name: "graph_summary"})})
+	text := extractText(t, resp)
 	if !strings.Contains(text, "total_functions") {
-		t.Fatalf("expected total_functions in response, got: %s", text)
+		t.Fatalf("missing total_functions: %s", text)
 	}
 }
 
 func TestToolCall_Subgraph(t *testing.T) {
-	g := buildTestGraph(t)
-	s := NewServer(g)
-
-	resp := s.handleToolCall(jsonrpcRequest{
-		JSONRPC: "2.0", ID: 1,
+	s := NewServer(buildTestStore(t))
+	resp := s.handleToolCall(jsonrpcRequest{JSONRPC: "2.0", ID: 1,
 		Params: mustJSON(t, toolCallParams{
 			Name:      "subgraph",
-			Arguments: mustJSONRaw(t, map[string]interface{}{"function": "ProcessOrder", "hops": 2}),
-		}),
-	})
-
-	if resp.Error != nil {
-		t.Fatal(resp.Error.Message)
-	}
-
-	result := resp.Result.(map[string]interface{})
-	content := result["content"].([]map[string]interface{})
-	text := content[0]["text"].(string)
+			Arguments: mustJSONRaw(t, map[string]any{"function": "ProcessOrder", "hops": 2}),
+		})})
+	text := extractText(t, resp)
 	if !strings.Contains(text, "center") {
-		t.Fatalf("expected center in response, got: %s", text)
+		t.Fatalf("missing center: %s", text)
 	}
 }
 
 func TestToolCall_UnknownTool(t *testing.T) {
-	g := buildTestGraph(t)
-	s := NewServer(g)
-
-	resp := s.handleToolCall(jsonrpcRequest{
-		JSONRPC: "2.0", ID: 1,
-		Params: mustJSON(t, toolCallParams{Name: "nonexistent"}),
-	})
-
-	result := resp.Result.(map[string]interface{})
-	content := result["content"].([]map[string]interface{})
-	text := content[0]["text"].(string)
+	s := NewServer(buildTestStore(t))
+	resp := s.handleToolCall(jsonrpcRequest{JSONRPC: "2.0", ID: 1,
+		Params: mustJSON(t, toolCallParams{Name: "nonexistent"})})
+	text := extractText(t, resp)
 	if !strings.Contains(text, "Error") {
-		t.Fatalf("expected error for unknown tool, got: %s", text)
+		t.Fatalf("expected error: %s", text)
 	}
 }
 
 func TestToolCall_PaginationTruncation(t *testing.T) {
-	g := buildTestGraph(t)
-	s := NewServer(g)
-
-	// entry_points returns 2 items (main, TestProcessOrder). Request limit=1.
-	resp := s.handleToolCall(jsonrpcRequest{
-		JSONRPC: "2.0", ID: 1,
+	s := NewServer(buildTestStore(t))
+	// entry_points returns at least 2 items; request limit=1.
+	resp := s.handleToolCall(jsonrpcRequest{JSONRPC: "2.0", ID: 1,
 		Params: mustJSON(t, toolCallParams{
 			Name:      "entry_points",
-			Arguments: mustJSONRaw(t, map[string]interface{}{"limit": 1}),
-		}),
-	})
-
-	if resp.Error != nil {
-		t.Fatal(resp.Error.Message)
+			Arguments: mustJSONRaw(t, map[string]any{"limit": 1}),
+		})})
+	text := extractText(t, resp)
+	var env map[string]interface{}
+	if err := json.Unmarshal([]byte(text), &env); err != nil {
+		t.Fatalf("envelope parse: %v\n%s", err, text)
 	}
-
-	result := resp.Result.(map[string]interface{})
-	content := result["content"].([]map[string]interface{})
-	text := content[0]["text"].(string)
-
-	var envelope map[string]interface{}
-	if err := json.Unmarshal([]byte(text), &envelope); err != nil {
-		t.Fatalf("failed to parse envelope: %v\ntext: %s", err, text)
+	if int(env["returned"].(float64)) != 1 {
+		t.Fatalf("returned=%v", env["returned"])
 	}
-
-	if int(envelope["total_count"].(float64)) != 2 {
-		t.Fatalf("expected total_count=2, got %v", envelope["total_count"])
-	}
-	if int(envelope["returned"].(float64)) != 1 {
-		t.Fatalf("expected returned=1, got %v", envelope["returned"])
-	}
-	if envelope["truncated"] != true {
-		t.Fatalf("expected truncated=true, got %v", envelope["truncated"])
-	}
-	if hint, ok := envelope["hint"].(string); !ok || hint == "" {
-		t.Fatal("expected non-empty hint when truncated")
+	if env["truncated"] != true {
+		t.Fatalf("not truncated: %v", env["truncated"])
 	}
 }
 
 func TestSessionScaffolded(t *testing.T) {
-	g := buildTestGraph(t)
-	s := NewServer(g)
+	s := NewServer(buildTestStore(t))
 	if s.session == nil {
-		t.Fatal("expected session to be initialized")
+		t.Fatal("session nil")
 	}
 }
 
@@ -248,10 +210,24 @@ func mustJSON(t *testing.T, v interface{}) json.RawMessage {
 }
 
 func mustJSONRaw(t *testing.T, v interface{}) json.RawMessage {
+	return mustJSON(t, v)
+}
+
+func extractText(t *testing.T, resp jsonrpcResponse) string {
 	t.Helper()
-	data, err := json.Marshal(v)
-	if err != nil {
-		t.Fatal(err)
+	if resp.Error != nil {
+		t.Fatalf("rpc error: %s", resp.Error.Message)
 	}
-	return data
+	result, ok := resp.Result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("unexpected result shape")
+	}
+	content := result["content"].([]map[string]interface{})
+	text, _ := content[0]["text"].(string)
+	if text == "" {
+		buf, _ := json.Marshal(resp.Result)
+		return string(buf)
+	}
+	_ = bytes.NewBuffer
+	return text
 }

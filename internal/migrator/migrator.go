@@ -2,10 +2,10 @@
 // migration that powers `cvalent migrate-store`.
 //
 // The CLI subcommand wiring lives in cmd/cvalent and lands as
-// AH-0316.18; this package is the pure-Go core that the subcommand
-// invokes. It is also the last consumer of internal/graph (and
-// therefore of the goraphdb library) — once Stage C deletes both, the
-// migrator carries the only import of the legacy reader.
+// AH-0316.18; this package is the pure-Go core. It is the only
+// remaining importer of `goraphdb` after Stage C — kept here so the
+// migrator can read pre-Rung-0 graph.db files. Once every install has
+// migrated, this package and goraphdb can be removed together.
 package migrator
 
 import (
@@ -20,7 +20,6 @@ import (
 
 	graphdb "github.com/mstrYoda/goraphdb"
 
-	"github.com/codevalent/cvalent/internal/graph"
 	"github.com/codevalent/cvalent/internal/model"
 	"github.com/codevalent/cvalent/internal/parser"
 	"github.com/codevalent/cvalent/internal/parser/distresolver"
@@ -68,7 +67,9 @@ func Migrate(ctx context.Context, legacyPath, newPath, repoPath string) (*Result
 		return nil, fmt.Errorf("migrator: repo context: %w", err)
 	}
 
-	g, err := graph.Open(legacyPath)
+	gopts := graphdb.DefaultOptions()
+	gopts.NoSync = true
+	g, err := graphdb.Open(legacyPath, gopts)
 	if err != nil {
 		return nil, fmt.Errorf("migrator: open legacy: %w", err)
 	}
@@ -177,8 +178,8 @@ type legacyFunction struct {
 
 // readLegacyFunctions iterates the legacy store and returns one
 // legacyFunction per Function-labelled node.
-func readLegacyFunctions(g *graph.Graph) ([]legacyFunction, error) {
-	result, err := g.Query(`MATCH (f) RETURN f`)
+func readLegacyFunctions(g *graphdb.DB) ([]legacyFunction, error) {
+	result, err := g.Cypher(context.Background(), `MATCH (f) RETURN f`)
 	if err != nil {
 		return nil, err
 	}

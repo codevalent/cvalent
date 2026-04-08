@@ -47,7 +47,7 @@ func TestBuildProducesGraph(t *testing.T) {
 	}
 
 	// Graph file should exist
-	if _, err := os.Stat(result.GraphPath); os.IsNotExist(err) {
+	if _, err := os.Stat(result.StorePath); os.IsNotExist(err) {
 		t.Fatal("graph file not created")
 	}
 }
@@ -159,7 +159,7 @@ func TestBuildGraphMeta(t *testing.T) {
 	if result.FunctionCount == 0 {
 		t.Fatal("expected functions")
 	}
-	if result.GraphPath == "" {
+	if result.StorePath == "" {
 		t.Fatal("expected graph path")
 	}
 }

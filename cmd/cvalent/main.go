@@ -1,6 +1,9 @@
+// cvalent — local code contract and data flow graph CLI.
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -8,12 +11,12 @@ import (
 
 	"github.com/codevalent/cvalent/internal/build"
 	"github.com/codevalent/cvalent/internal/config"
-	"github.com/codevalent/cvalent/internal/graph"
 	"github.com/codevalent/cvalent/internal/mcp"
 	"github.com/codevalent/cvalent/internal/query"
+	"github.com/codevalent/cvalent/internal/store"
 )
 
-var version = "0.1.0-dev"
+var version = "0.2.0-dev"
 
 var rootCmd = &cobra.Command{
 	Use:   "cvalent",
@@ -83,82 +86,89 @@ var serveCmd = &cobra.Command{
 		if !mcpFlag {
 			return fmt.Errorf("use --mcp flag to start MCP server on stdio")
 		}
-		g, err := openGraphForQuery()
+		s, err := openStoreForQuery()
 		if err != nil {
-			return fmt.Errorf("open graph: %w (run cvalent build first)", err)
+			return err
 		}
-		defer g.Close()
+		defer s.Close()
 
-		server := mcp.NewServer(g)
+		server := mcp.NewServer(s)
 		fmt.Fprintln(os.Stderr, "cvalent MCP server started on stdio")
 		return server.Serve(os.Stdin, os.Stdout)
 	},
 }
 
-func init() {
-	serveCmd.Flags().BoolVar(&mcpFlag, "mcp", false, "Start MCP server on stdio transport")
+func openStoreForQuery() (*store.Store, error) {
+	root, _ := os.Getwd()
+	if _, err := config.Load(root); errors.Is(err, config.ErrLegacyStorePresent) {
+		return nil, fmt.Errorf("legacy graph.db detected — run `cvalent migrate-store` to upgrade")
+	}
+	storePath := config.StorePath(root)
+	if _, err := os.Stat(storePath); errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("no store at %s — run `cvalent build` first", storePath)
+	}
+	return store.Open(context.Background(), storePath)
 }
 
 var depthFlag int
 
-func openGraphForQuery() (*graph.Graph, error) {
-	root, _ := os.Getwd()
-	graphPath := config.GraphPath(root)
-	return graph.Open(graphPath)
+func init() {
+	serveCmd.Flags().BoolVar(&mcpFlag, "mcp", false, "Start MCP server on stdio transport")
 }
 
 func init() {
-	// Wire all 11 query commands
+	ctx := context.Background()
+	withStore := func(fn func(*store.Store) error) func(*cobra.Command, []string) error {
+		return func(*cobra.Command, []string) error {
+			s, err := openStoreForQuery()
+			if err != nil {
+				return err
+			}
+			defer s.Close()
+			return fn(s)
+		}
+	}
+
 	callersCmd := &cobra.Command{
 		Use: "callers <function>", Short: "Show functions that call the given function",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			g, err := openGraphForQuery()
-			if err != nil {
-				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
-			}
-			defer g.Close()
-			results, err := query.Callers(g, args[0], query.UnlimitedOpts())
-			if err != nil {
-				return err
-			}
-			fmt.Print(query.FormatInfo(results.Items))
-			return nil
+			return withStore(func(s *store.Store) error {
+				r, err := query.Callers(ctx, s, args[0], query.UnlimitedOpts())
+				if err != nil {
+					return err
+				}
+				fmt.Print(query.FormatRefs(r.Items))
+				return nil
+			})(cmd, args)
 		},
 	}
 	contractCmd := &cobra.Command{
-		Use: "contract <function>", Short: "Show the contract (input/output shape) of a function",
+		Use: "contract <function>", Short: "Show the contract of a function",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			g, err := openGraphForQuery()
-			if err != nil {
-				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
-			}
-			defer g.Close()
-			info, err := query.Contract(g, args[0])
-			if err != nil {
-				return err
-			}
-			fmt.Printf("%s\n  %s:%d-%d\n  Contract: %s\n  Completeness: %s\n",
-				info.QualifiedName, info.File, info.StartLine, info.EndLine, info.Contract, info.Completeness)
-			return nil
+			return withStore(func(s *store.Store) error {
+				d, err := query.Contract(ctx, s, args[0])
+				if err != nil {
+					return err
+				}
+				fmt.Print(query.FormatDetail(d))
+				return nil
+			})(cmd, args)
 		},
 	}
 	impactCmd := &cobra.Command{
 		Use: "impact <function>", Short: "Show the blast radius of changing a function",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			g, err := openGraphForQuery()
-			if err != nil {
-				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
-			}
-			defer g.Close()
-			results, err := query.Impact(g, args[0], depthFlag, query.UnlimitedOpts())
-			if err != nil {
-				return err
-			}
-			fmt.Printf("Impact of %s (depth %d):\n%s", args[0], depthFlag, query.FormatInfo(results.Items))
-			return nil
+			return withStore(func(s *store.Store) error {
+				r, err := query.Impact(ctx, s, args[0], depthFlag, query.UnlimitedOpts())
+				if err != nil {
+					return err
+				}
+				fmt.Print(query.FormatRefs(r.Items))
+				return nil
+			})(cmd, args)
 		},
 	}
 	impactCmd.Flags().IntVar(&depthFlag, "depth", 3, "Maximum traversal depth")
@@ -167,136 +177,112 @@ func init() {
 		Use: "breaks <function>", Short: "Show callers whose data shape doesn't match the contract",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			g, err := openGraphForQuery()
-			if err != nil {
-				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
-			}
-			defer g.Close()
-			results, err := query.Breaks(g, args[0], query.UnlimitedOpts())
-			if err != nil {
-				return err
-			}
-			fmt.Print(query.FormatInfo(results.Items))
-			return nil
+			return withStore(func(s *store.Store) error {
+				r, err := query.Breaks(ctx, s, args[0], query.UnlimitedOpts())
+				if err != nil {
+					return err
+				}
+				fmt.Print(query.FormatRefs(r.Items))
+				return nil
+			})(cmd, args)
 		},
 	}
 	entryPointsCmd := &cobra.Command{
 		Use: "entry-points", Short: "Show functions with no incoming call edges",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			g, err := openGraphForQuery()
-			if err != nil {
-				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
-			}
-			defer g.Close()
-			results, err := query.EntryPoints(g, query.UnlimitedOpts())
-			if err != nil {
-				return err
-			}
-			fmt.Print(query.FormatInfo(results.Items))
-			return nil
+			return withStore(func(s *store.Store) error {
+				r, err := query.EntryPoints(ctx, s, query.UnlimitedOpts())
+				if err != nil {
+					return err
+				}
+				fmt.Print(query.FormatRefs(r.Items))
+				return nil
+			})(cmd, args)
 		},
 	}
 	exportsCmd := &cobra.Command{
 		Use: "exports <module>", Short: "Show the public API of a module",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			g, err := openGraphForQuery()
-			if err != nil {
-				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
-			}
-			defer g.Close()
-			results, err := query.Exports(g, args[0], query.UnlimitedOpts())
-			if err != nil {
-				return err
-			}
-			fmt.Print(query.FormatInfo(results.Items))
-			return nil
+			return withStore(func(s *store.Store) error {
+				r, err := query.Exports(ctx, s, args[0], query.UnlimitedOpts())
+				if err != nil {
+					return err
+				}
+				fmt.Print(query.FormatRefs(r.Items))
+				return nil
+			})(cmd, args)
 		},
 	}
 	domainsCmd := &cobra.Command{
 		Use: "domains", Short: "List directory-based module groupings",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			g, err := openGraphForQuery()
-			if err != nil {
-				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
-			}
-			defer g.Close()
-			results, err := query.Domains(g, query.UnlimitedOpts())
-			if err != nil {
-				return err
-			}
-			for _, d := range results.Items {
-				fmt.Printf("  %-30s %d functions\n", d.Module, d.Functions)
-			}
-			return nil
+			return withStore(func(s *store.Store) error {
+				r, err := query.Domains(ctx, s, query.UnlimitedOpts())
+				if err != nil {
+					return err
+				}
+				for _, d := range r.Items {
+					fmt.Printf("  %-30s %d functions\n", d.Module, d.Functions)
+				}
+				return nil
+			})(cmd, args)
 		},
 	}
 	domainCmd := &cobra.Command{
-		Use: "domain <name>", Short: "Show functions and edges within a module",
+		Use: "domain <name>", Short: "Show functions within a module",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			g, err := openGraphForQuery()
-			if err != nil {
-				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
-			}
-			defer g.Close()
-			results, err := query.Domain(g, args[0], query.UnlimitedOpts())
-			if err != nil {
-				return err
-			}
-			fmt.Print(query.FormatInfo(results.Items))
-			return nil
+			return withStore(func(s *store.Store) error {
+				r, err := query.Domain(ctx, s, args[0], query.UnlimitedOpts())
+				if err != nil {
+					return err
+				}
+				fmt.Print(query.FormatRefs(r.Items))
+				return nil
+			})(cmd, args)
 		},
 	}
 	couplingCmd := &cobra.Command{
 		Use: "coupling", Short: "Show cross-module dependency density",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			g, err := openGraphForQuery()
-			if err != nil {
-				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
-			}
-			defer g.Close()
-			results, err := query.Coupling(g, query.UnlimitedOpts())
-			if err != nil {
-				return err
-			}
-			for _, c := range results.Items {
-				fmt.Printf("  %s -> %s  (%d edges)\n", c.FromModule, c.ToModule, c.EdgeCount)
-			}
-			return nil
+			return withStore(func(s *store.Store) error {
+				r, err := query.Coupling(ctx, s, query.UnlimitedOpts())
+				if err != nil {
+					return err
+				}
+				for _, c := range r.Items {
+					fmt.Printf("  %s -> %s  (%d edges)\n", c.FromModule, c.ToModule, c.EdgeCount)
+				}
+				return nil
+			})(cmd, args)
 		},
 	}
 	untestedCmd := &cobra.Command{
 		Use: "untested", Short: "Show application functions with no test coverage",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			g, err := openGraphForQuery()
-			if err != nil {
-				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
-			}
-			defer g.Close()
-			results, err := query.Untested(g, query.UnlimitedOpts())
-			if err != nil {
-				return err
-			}
-			fmt.Print(query.FormatInfo(results.Items))
-			return nil
+			return withStore(func(s *store.Store) error {
+				r, err := query.Untested(ctx, s, query.UnlimitedOpts())
+				if err != nil {
+					return err
+				}
+				fmt.Print(query.FormatRefs(r.Items))
+				return nil
+			})(cmd, args)
 		},
 	}
 	testCoverageCmd := &cobra.Command{
 		Use: "test-coverage <function>", Short: "Show which tests exercise a function",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			g, err := openGraphForQuery()
-			if err != nil {
-				return fmt.Errorf("open graph: %w (run cvalent build first)", err)
-			}
-			defer g.Close()
-			results, err := query.TestCoverage(g, args[0], query.UnlimitedOpts())
-			if err != nil {
-				return err
-			}
-			fmt.Print(query.FormatInfo(results.Items))
-			return nil
+			return withStore(func(s *store.Store) error {
+				r, err := query.TestCoverage(ctx, s, args[0], query.UnlimitedOpts())
+				if err != nil {
+					return err
+				}
+				fmt.Print(query.FormatRefs(r.Items))
+				return nil
+			})(cmd, args)
 		},
 	}
 
