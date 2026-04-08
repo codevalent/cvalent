@@ -7,7 +7,9 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/java"
 
+	"github.com/codevalent/cvalent/internal/model"
 	"github.com/codevalent/cvalent/internal/parser"
+	"github.com/codevalent/cvalent/internal/parser/distresolver"
 )
 
 type Parser struct{}
@@ -16,29 +18,75 @@ func New() *Parser { return &Parser{} }
 
 func (p *Parser) Language() string { return "java" }
 
-func (p *Parser) Parse(filepath string, source []byte) ([]parser.FunctionNode, error) {
+func (p *Parser) Parse(run *parser.Run, file string, source []byte) ([]parser.FunctionNode, error) {
 	tree, err := sitter.ParseCtx(context.Background(), source, java.GetLanguage())
 	if err != nil {
 		return nil, err
 	}
 
+	dist, err := run.Resolver.Resolve(file)
+	if err != nil {
+		return nil, err
+	}
 	pkg := extractPackage(tree, source)
-	isTestFile := strings.HasSuffix(filepath, "Test.java") || strings.HasSuffix(filepath, "Tests.java")
+	isTestFile := strings.HasSuffix(file, "Test.java") || strings.HasSuffix(file, "Tests.java")
 
 	var funcs []parser.FunctionNode
-
-	// Walk top-level declarations (class, interface, enum)
 	for i := 0; i < int(tree.NamedChildCount()); i++ {
 		child := tree.NamedChild(i)
 		switch child.Type() {
 		case "class_declaration":
-			funcs = append(funcs, extractClassMembers(child, source, filepath, pkg, isTestFile)...)
+			funcs = append(funcs, extractClassMembers(dist, child, source, file, pkg, isTestFile)...)
 		case "interface_declaration":
-			funcs = append(funcs, extractInterfaceMembers(child, source, filepath, pkg, isTestFile)...)
+			funcs = append(funcs, extractInterfaceMembers(dist, child, source, file, pkg, isTestFile)...)
 		}
 	}
-
+	// Disambiguate Java overloads after the fact: if any name+container
+	// pair appears more than once, every occurrence in that group gets
+	// re-minted with OverloadLanguage="java" so the sigHash suffix is
+	// applied. This avoids paying the overhead for every method.
+	disambiguateOverloads(funcs, dist, file, "java")
 	return funcs, nil
+}
+
+// disambiguateOverloads re-mints any node whose (Container, Name) pair
+// is non-unique within `funcs`, using OverloadLanguage to enable the
+// sigHash suffix. The function mutates funcs in place.
+func disambiguateOverloads(funcs []parser.FunctionNode, dist distresolver.Distribution, file, lang string) {
+	type key struct{ recv, name string }
+	counts := map[key]int{}
+	for _, fn := range funcs {
+		counts[key{fn.Receiver, fn.Name}]++
+	}
+	for i := range funcs {
+		k := key{funcs[i].Receiver, funcs[i].Name}
+		if counts[k] < 2 {
+			continue
+		}
+		paramTypes := make([]string, len(funcs[i].Params))
+		for j, p := range funcs[i].Params {
+			if p.Type != "" {
+				paramTypes[j] = p.Type
+			} else {
+				paramTypes[j] = p.TypeExpr
+			}
+		}
+		container := strings.TrimPrefix(funcs[i].Receiver, "*")
+		parts := model.IdentityParts{
+			Distribution:     dist.Name,
+			ModulePath:       funcs[i].ModulePath,
+			Container:        container,
+			Name:             funcs[i].Name,
+			Params:           paramTypes,
+			OverloadLanguage: lang,
+		}
+		base, err := parser.Mint(parts, lang, file, dist.Source)
+		if err != nil {
+			continue
+		}
+		funcs[i].Node = base
+		funcs[i].Language = lang
+	}
 }
 
 func extractPackage(tree *sitter.Node, source []byte) string {
@@ -102,7 +150,7 @@ func extractFieldsFromBody(body *sitter.Node, source []byte) []parser.Field {
 	return fields
 }
 
-func extractClassMembers(classNode *sitter.Node, source []byte, filepath, pkg string, isTestFile bool) []parser.FunctionNode {
+func extractClassMembers(dist distresolver.Distribution, classNode *sitter.Node, source []byte, file, pkg string, isTestFile bool) []parser.FunctionNode {
 	className := ""
 	for i := 0; i < int(classNode.NamedChildCount()); i++ {
 		c := classNode.NamedChild(i)
@@ -136,17 +184,21 @@ func extractClassMembers(classNode *sitter.Node, source []byte, filepath, pkg st
 		child := body.NamedChild(i)
 		switch child.Type() {
 		case "method_declaration":
-			fn := extractMethod(child, source, filepath, pkg, className, sameFileClasses, isTestFile)
-			funcs = append(funcs, fn)
+			fn, ok := extractMethod(dist, child, source, file, pkg, className, sameFileClasses, isTestFile)
+			if ok {
+				funcs = append(funcs, fn)
+			}
 		case "constructor_declaration":
-			fn := extractConstructor(child, source, filepath, pkg, className, sameFileClasses)
-			funcs = append(funcs, fn)
+			fn, ok := extractConstructor(dist, child, source, file, pkg, className, sameFileClasses)
+			if ok {
+				funcs = append(funcs, fn)
+			}
 		}
 	}
 	return funcs
 }
 
-func extractInterfaceMembers(ifaceNode *sitter.Node, source []byte, filepath, pkg string, isTestFile bool) []parser.FunctionNode {
+func extractInterfaceMembers(dist distresolver.Distribution, ifaceNode *sitter.Node, source []byte, file, pkg string, isTestFile bool) []parser.FunctionNode {
 	ifaceName := ""
 	for i := 0; i < int(ifaceNode.NamedChildCount()); i++ {
 		c := ifaceNode.NamedChild(i)
@@ -172,15 +224,16 @@ func extractInterfaceMembers(ifaceNode *sitter.Node, source []byte, filepath, pk
 	for i := 0; i < int(body.NamedChildCount()); i++ {
 		child := body.NamedChild(i)
 		if child.Type() == "method_declaration" {
-			fn := extractMethod(child, source, filepath, pkg, ifaceName, nil, isTestFile)
-			fn.Kind = "method"
-			funcs = append(funcs, fn)
+			fn, ok := extractMethod(dist, child, source, file, pkg, ifaceName, nil, isTestFile)
+			if ok {
+				funcs = append(funcs, fn)
+			}
 		}
 	}
 	return funcs
 }
 
-func extractMethod(node *sitter.Node, source []byte, filepath, pkg, className string, classes map[string]classInfo, isTestFile bool) parser.FunctionNode {
+func extractMethod(dist distresolver.Distribution, node *sitter.Node, source []byte, file, pkg, className string, classes map[string]classInfo, isTestFile bool) (parser.FunctionNode, bool) {
 	name := ""
 	for i := 0; i < int(node.NamedChildCount()); i++ {
 		c := node.NamedChild(i)
@@ -204,48 +257,60 @@ func extractMethod(node *sitter.Node, source []byte, filepath, pkg, className st
 		tag = "test"
 	}
 
-	kind := "method"
-	_ = isStatic // static methods are still "method" kind
-
-	return parser.FunctionNode{
-		Name:                 name,
-		QualifiedName:        pkg + "." + className + "." + name,
-		File:                 filepath,
-		Package:              pkg,
-		Language:             "java",
-		StartLine:            int(node.StartPoint().Row) + 1,
-		EndLine:              int(node.EndPoint().Row) + 1,
-		Kind:                 kind,
-		Receiver:             className,
-		Exported:             isPublic,
-		Tag:                  tag,
-		Parameters:           params,
-		Returns:              returnType,
-		ContractCompleteness: "full",
+	_ = isStatic
+	parts := model.IdentityParts{
+		Distribution: dist.Name,
+		ModulePath:   pkg,
+		Container:    className,
+		Name:         name,
 	}
+	base, err := parser.Mint(parts, "java", file, dist.Source)
+	if err != nil {
+		return parser.FunctionNode{}, false
+	}
+	return parser.FunctionNode{
+		Node: base,
+		FunctionMeta: model.FunctionMeta{
+			StartLine:            int(node.StartPoint().Row) + 1,
+			EndLine:              int(node.EndPoint().Row) + 1,
+			Exported:             isPublic,
+			Tag:                  tag,
+			Receiver:             className,
+			Params:               params,
+			Returns:              returnType,
+			ContractCompleteness: "full",
+		},
+	}, true
 }
 
-func extractConstructor(node *sitter.Node, source []byte, filepath, pkg, className string, classes map[string]classInfo) parser.FunctionNode {
+func extractConstructor(dist distresolver.Distribution, node *sitter.Node, source []byte, file, pkg, className string, classes map[string]classInfo) (parser.FunctionNode, bool) {
 	modifiers := extractModifiers(node, source)
 	isPublic := containsModifier(modifiers, "public")
 	params := extractConstructorParams(node, source, classes)
 
-	return parser.FunctionNode{
-		Name:                 className,
-		QualifiedName:        pkg + "." + className + "." + className,
-		File:                 filepath,
-		Package:              pkg,
-		Language:             "java",
-		StartLine:            int(node.StartPoint().Row) + 1,
-		EndLine:              int(node.EndPoint().Row) + 1,
-		Kind:                 "constructor",
-		Receiver:             className,
-		Exported:             isPublic,
-		Tag:                  "application",
-		Parameters:           params,
-		Returns:              parser.ReturnSpec{Values: []parser.ReturnValue{}},
-		ContractCompleteness: "full",
+	parts := model.IdentityParts{
+		Distribution: dist.Name,
+		ModulePath:   pkg,
+		Container:    className,
+		Name:         className,
 	}
+	base, err := parser.Mint(parts, "java", file, dist.Source)
+	if err != nil {
+		return parser.FunctionNode{}, false
+	}
+	return parser.FunctionNode{
+		Node: base,
+		FunctionMeta: model.FunctionMeta{
+			StartLine:            int(node.StartPoint().Row) + 1,
+			EndLine:              int(node.EndPoint().Row) + 1,
+			Exported:             isPublic,
+			Tag:                  "application",
+			Receiver:             className,
+			Params:               params,
+			Returns:              parser.ReturnSpec{Values: []parser.ReturnValue{}},
+			ContractCompleteness: "full",
+		},
+	}, true
 }
 
 func extractModifiers(node *sitter.Node, source []byte) []string {

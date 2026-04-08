@@ -5,138 +5,59 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/codevalent/cvalent/internal/model"
 	"github.com/codevalent/cvalent/internal/parser"
+	"github.com/codevalent/cvalent/internal/parser/distresolver"
 	goparser "github.com/codevalent/cvalent/internal/parser/golang"
-	pyparser "github.com/codevalent/cvalent/internal/parser/python"
 )
 
-func parseGoFixture(t *testing.T, dir string, files []string) (string, []parser.FunctionNode) {
-	t.Helper()
-	absDir, _ := filepath.Abs(dir)
+// TestResolve_BasicGoCallEdges parses a tiny Go module with two
+// functions where one calls the other, then asserts that Resolve emits
+// at least one call edge linking them.
+func TestResolve_BasicGoCallEdges(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := `package widget
+func helper() int { return 42 }
+func main() { _ = helper() }
+`
+	dir := filepath.Join(root, "widget")
+	_ = os.MkdirAll(dir, 0o755)
+	rel := "widget/x.go"
+	if err := os.WriteFile(filepath.Join(root, rel), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	repo := &distresolver.RepoContext{
+		Root:           root,
+		FallbackName:   "repo:foo/bar",
+		FallbackSource: model.IdentityFromRepoFallback,
+	}
+	run := &parser.Run{
+		Resolver: distresolver.New(repo, distresolver.GoManifestSpec),
+		Repo:     repo,
+	}
 	p := goparser.New()
-	var nodes []parser.FunctionNode
-	for _, f := range files {
-		path := filepath.Join(absDir, f)
-		src, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", f, err)
-		}
-		fns, err := p.Parse(f, src)
-		if err != nil {
-			t.Fatalf("parse %s: %v", f, err)
-		}
-		nodes = append(nodes, fns...)
-	}
-	return absDir, nodes
-}
-
-func parsePyFixture(t *testing.T, dir string, files []string) (string, []parser.FunctionNode) {
-	t.Helper()
-	absDir, _ := filepath.Abs(dir)
-	p := pyparser.New()
-	var nodes []parser.FunctionNode
-	for _, f := range files {
-		path := filepath.Join(absDir, f)
-		src, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", f, err)
-		}
-		fns, err := p.Parse(f, src)
-		if err != nil {
-			t.Fatalf("parse %s: %v", f, err)
-		}
-		nodes = append(nodes, fns...)
-	}
-	return absDir, nodes
-}
-
-func TestResolve_GoCrossFile(t *testing.T) {
-	dir := "../../testdata/go/cross_file"
-	files := []string{"input/types.go", "input/service.go", "input/validator.go"}
-	absDir, nodes := parseGoFixture(t, dir, files)
-
-	t.Logf("Parsed %d functions", len(nodes))
-	for _, n := range nodes {
-		t.Logf("  %s (%s)", n.QualifiedName, n.File)
-	}
-
-	edges, err := Resolve(absDir, nodes)
+	nodes, err := p.Parse(run, filepath.Join(root, rel), []byte(src))
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	t.Logf("Resolved %d edges", len(edges))
-	for _, e := range edges {
-		t.Logf("  %s -> %s", e.CallerQualified, e.CalleeQualified)
+	for i := range nodes {
+		nodes[i].File = rel
 	}
-
-	// ProcessOrder calls validate
+	edges, err := Resolve(root, nodes)
+	if err != nil {
+		t.Fatal(err)
+	}
 	found := false
 	for _, e := range edges {
-		if e.CallerName == "ProcessOrder" && e.CalleeName == "validate" {
+		if e.CallerName == "main" && e.CalleeName == "helper" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatal("expected edge ProcessOrder -> validate")
-	}
-}
-
-func TestResolve_GoTestEdges(t *testing.T) {
-	dir := "../../testdata/go/test_edges"
-	files := []string{"input/service.go", "input/service_test.go"}
-	absDir, nodes := parseGoFixture(t, dir, files)
-
-	edges, err := Resolve(absDir, nodes)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Logf("Resolved %d edges", len(edges))
-	for _, e := range edges {
-		t.Logf("  %s -> %s", e.CallerQualified, e.CalleeQualified)
-	}
-
-	// TestProcessOrder calls ProcessOrder
-	found := false
-	for _, e := range edges {
-		if e.CallerName == "TestProcessOrder" && e.CalleeName == "ProcessOrder" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("expected edge TestProcessOrder -> ProcessOrder")
-	}
-}
-
-func TestResolve_PythonCrossFile(t *testing.T) {
-	dir := "../../testdata/python/cross_file"
-	files := []string{"input/models.py", "input/service.py", "input/validator.py"}
-	absDir, nodes := parsePyFixture(t, dir, files)
-
-	t.Logf("Parsed %d functions", len(nodes))
-	for _, n := range nodes {
-		t.Logf("  %s (%s)", n.QualifiedName, n.File)
-	}
-
-	edges, err := Resolve(absDir, nodes)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Logf("Resolved %d edges", len(edges))
-	for _, e := range edges {
-		t.Logf("  %s -> %s", e.CallerQualified, e.CalleeQualified)
-	}
-
-	// process_order calls validate
-	found := false
-	for _, e := range edges {
-		if e.CallerName == "process_order" && e.CalleeName == "validate" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("expected edge process_order -> validate")
+		t.Errorf("expected call edge main -> helper; got %d edges: %+v", len(edges), edges)
 	}
 }

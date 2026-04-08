@@ -2,13 +2,16 @@ package typescript
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"unicode"
 
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/typescript/typescript"
 
+	"github.com/codevalent/cvalent/internal/model"
 	"github.com/codevalent/cvalent/internal/parser"
+	"github.com/codevalent/cvalent/internal/parser/distresolver"
 )
 
 type Parser struct{}
@@ -17,41 +20,106 @@ func New() *Parser { return &Parser{} }
 
 func (p *Parser) Language() string { return "typescript" }
 
-func (p *Parser) Parse(filepath string, source []byte) ([]parser.FunctionNode, error) {
+func (p *Parser) Parse(run *parser.Run, file string, source []byte) ([]parser.FunctionNode, error) {
 	tree, err := sitter.ParseCtx(context.Background(), source, typescript.GetLanguage())
 	if err != nil {
 		return nil, err
 	}
 
+	dist, err := run.Resolver.Resolve(file)
+	if err != nil {
+		return nil, err
+	}
+	modulePath := tsModulePath(file, dist.ManifestPath, run.Repo.Root)
+
 	interfaces := extractInterfaces(tree, source)
 	typeAliases := extractTypeAliases(tree, source)
-	// Merge into one map
 	for k, v := range typeAliases {
 		interfaces[k] = v
 	}
 
-	isTestFile := strings.HasSuffix(filepath, ".test.ts") ||
-		strings.HasSuffix(filepath, ".spec.ts") ||
-		strings.HasSuffix(filepath, ".test.tsx") ||
-		strings.HasSuffix(filepath, ".spec.tsx")
+	isTestFile := strings.HasSuffix(file, ".test.ts") ||
+		strings.HasSuffix(file, ".spec.ts") ||
+		strings.HasSuffix(file, ".test.tsx") ||
+		strings.HasSuffix(file, ".spec.tsx")
 
 	var funcs []parser.FunctionNode
-
 	for i := 0; i < int(tree.NamedChildCount()); i++ {
 		child := tree.NamedChild(i)
 		switch child.Type() {
 		case "function_declaration":
-			fn := extractFunction(child, source, filepath, interfaces, isTestFile, false)
-			funcs = append(funcs, fn)
+			fn, ok := extractFunction(dist, modulePath, child, source, file, "", interfaces, isTestFile, false)
+			if ok {
+				funcs = append(funcs, fn)
+			}
 		case "lexical_declaration":
-			// Non-exported arrow functions (const x = (...) => ...)
-			funcs = append(funcs, extractLexicalDeclaration(child, source, filepath, interfaces, isTestFile, false)...)
+			funcs = append(funcs, extractLexicalDeclaration(dist, modulePath, child, source, file, interfaces, isTestFile, false)...)
 		case "export_statement":
-			funcs = append(funcs, extractExportedItems(child, source, filepath, interfaces, isTestFile)...)
+			funcs = append(funcs, extractExportedItems(dist, modulePath, child, source, file, interfaces, isTestFile)...)
 		}
 	}
 
+	disambiguateOverloads(funcs, dist, file)
 	return funcs, nil
+}
+
+// tsModulePath converts a file path to a posix module path relative to
+// the manifest dir, with the extension stripped (matching how TS imports
+// resolve files).
+func tsModulePath(file, manifestPath, repoRoot string) string {
+	abs, _ := filepath.Abs(file)
+	base := repoRoot
+	if manifestPath != "" {
+		base = filepath.Dir(manifestPath)
+	}
+	rel, err := filepath.Rel(base, abs)
+	if err != nil {
+		return ""
+	}
+	rel = filepath.ToSlash(rel)
+	for _, ext := range []string{".tsx", ".ts", ".jsx", ".js"} {
+		if strings.HasSuffix(rel, ext) {
+			rel = strings.TrimSuffix(rel, ext)
+			break
+		}
+	}
+	return rel
+}
+
+func disambiguateOverloads(funcs []parser.FunctionNode, dist distresolver.Distribution, file string) {
+	type key struct{ recv, name string }
+	counts := map[key]int{}
+	for _, fn := range funcs {
+		counts[key{fn.Receiver, fn.Name}]++
+	}
+	for i := range funcs {
+		k := key{funcs[i].Receiver, funcs[i].Name}
+		if counts[k] < 2 {
+			continue
+		}
+		paramTypes := make([]string, len(funcs[i].Params))
+		for j, p := range funcs[i].Params {
+			if p.Type != "" {
+				paramTypes[j] = p.Type
+			} else {
+				paramTypes[j] = p.TypeExpr
+			}
+		}
+		container := strings.TrimPrefix(funcs[i].Receiver, "*")
+		parts := model.IdentityParts{
+			Distribution:     dist.Name,
+			ModulePath:       funcs[i].ModulePath,
+			Container:        container,
+			Name:             funcs[i].Name,
+			Params:           paramTypes,
+			OverloadLanguage: "typescript",
+		}
+		base, err := parser.Mint(parts, "typescript", file, dist.Source)
+		if err != nil {
+			continue
+		}
+		funcs[i].Node = base
+	}
 }
 
 type typeInfo struct {
@@ -150,24 +218,26 @@ func extractObjectTypeFields(body *sitter.Node, source []byte) []parser.Field {
 	return fields
 }
 
-func extractExportedItems(node *sitter.Node, source []byte, filepath string, types map[string]typeInfo, isTestFile bool) []parser.FunctionNode {
+func extractExportedItems(dist distresolver.Distribution, modulePath string, node *sitter.Node, source []byte, file string, types map[string]typeInfo, isTestFile bool) []parser.FunctionNode {
 	var funcs []parser.FunctionNode
 	for i := 0; i < int(node.NamedChildCount()); i++ {
 		child := node.NamedChild(i)
 		switch child.Type() {
 		case "function_declaration":
-			fn := extractFunction(child, source, filepath, types, isTestFile, true)
-			funcs = append(funcs, fn)
+			fn, ok := extractFunction(dist, modulePath, child, source, file, "", types, isTestFile, true)
+			if ok {
+				funcs = append(funcs, fn)
+			}
 		case "lexical_declaration":
-			funcs = append(funcs, extractLexicalDeclaration(child, source, filepath, types, isTestFile, true)...)
+			funcs = append(funcs, extractLexicalDeclaration(dist, modulePath, child, source, file, types, isTestFile, true)...)
 		case "class_declaration":
-			funcs = append(funcs, extractClassMembers(child, source, filepath, types, isTestFile)...)
+			funcs = append(funcs, extractClassMembers(dist, modulePath, child, source, file, types, isTestFile)...)
 		}
 	}
 	return funcs
 }
 
-func extractFunction(node *sitter.Node, source []byte, filepath string, types map[string]typeInfo, isTestFile bool, exported bool) parser.FunctionNode {
+func extractFunction(dist distresolver.Distribution, modulePath string, node *sitter.Node, source []byte, file, container string, types map[string]typeInfo, isTestFile, exported bool) (parser.FunctionNode, bool) {
 	name := ""
 	for i := 0; i < int(node.NamedChildCount()); i++ {
 		c := node.NamedChild(i)
@@ -175,6 +245,9 @@ func extractFunction(node *sitter.Node, source []byte, filepath string, types ma
 			name = c.Content(source)
 			break
 		}
+	}
+	if name == "" {
+		return parser.FunctionNode{}, false
 	}
 
 	params := extractFormalParams(node, source, types)
@@ -184,29 +257,37 @@ func extractFunction(node *sitter.Node, source []byte, filepath string, types ma
 	if isTestFile {
 		tag = "test"
 	}
-
 	completeness := "full"
 	if hasAnyType(params, returns) {
 		completeness = "partial"
 	}
 
-	return parser.FunctionNode{
-		Name:                 name,
-		QualifiedName:        name,
-		File:                 filepath,
-		Language:             "typescript",
-		StartLine:            int(node.StartPoint().Row) + 1,
-		EndLine:              int(node.EndPoint().Row) + 1,
-		Kind:                 "function",
-		Exported:             exported,
-		Tag:                  tag,
-		Parameters:           params,
-		Returns:              returns,
-		ContractCompleteness: completeness,
+	parts := model.IdentityParts{
+		Distribution: dist.Name,
+		ModulePath:   modulePath,
+		Container:    container,
+		Name:         name,
 	}
+	base, err := parser.Mint(parts, "typescript", file, dist.Source)
+	if err != nil {
+		return parser.FunctionNode{}, false
+	}
+	return parser.FunctionNode{
+		Node: base,
+		FunctionMeta: model.FunctionMeta{
+			StartLine:            int(node.StartPoint().Row) + 1,
+			EndLine:              int(node.EndPoint().Row) + 1,
+			Exported:             exported,
+			Tag:                  tag,
+			Receiver:             container,
+			Params:               params,
+			Returns:              returns,
+			ContractCompleteness: completeness,
+		},
+	}, true
 }
 
-func extractLexicalDeclaration(node *sitter.Node, source []byte, filepath string, types map[string]typeInfo, isTestFile bool, exported bool) []parser.FunctionNode {
+func extractLexicalDeclaration(dist distresolver.Distribution, modulePath string, node *sitter.Node, source []byte, file string, types map[string]typeInfo, isTestFile, exported bool) []parser.FunctionNode {
 	var funcs []parser.FunctionNode
 	for i := 0; i < int(node.NamedChildCount()); i++ {
 		child := node.NamedChild(i)
@@ -223,15 +304,17 @@ func extractLexicalDeclaration(node *sitter.Node, source []byte, filepath string
 				}
 			}
 			if arrowFn != nil {
-				fn := extractArrowFunction(arrowFn, name, source, filepath, types, isTestFile, exported)
-				funcs = append(funcs, fn)
+				fn, ok := extractArrowFunction(dist, modulePath, arrowFn, name, source, file, types, isTestFile, exported)
+				if ok {
+					funcs = append(funcs, fn)
+				}
 			}
 		}
 	}
 	return funcs
 }
 
-func extractArrowFunction(node *sitter.Node, name string, source []byte, filepath string, types map[string]typeInfo, isTestFile bool, exported bool) parser.FunctionNode {
+func extractArrowFunction(dist distresolver.Distribution, modulePath string, node *sitter.Node, name string, source []byte, file string, types map[string]typeInfo, isTestFile, exported bool) (parser.FunctionNode, bool) {
 	params := extractFormalParams(node, source, types)
 	returns := extractReturnType(node, source, types)
 
@@ -239,29 +322,35 @@ func extractArrowFunction(node *sitter.Node, name string, source []byte, filepat
 	if isTestFile {
 		tag = "test"
 	}
-
 	completeness := "full"
 	if hasAnyType(params, returns) {
 		completeness = "partial"
 	}
 
-	return parser.FunctionNode{
-		Name:                 name,
-		QualifiedName:        name,
-		File:                 filepath,
-		Language:             "typescript",
-		StartLine:            int(node.StartPoint().Row) + 1,
-		EndLine:              int(node.EndPoint().Row) + 1,
-		Kind:                 "function",
-		Exported:             exported,
-		Tag:                  tag,
-		Parameters:           params,
-		Returns:              returns,
-		ContractCompleteness: completeness,
+	parts := model.IdentityParts{
+		Distribution: dist.Name,
+		ModulePath:   modulePath,
+		Name:         name,
 	}
+	base, err := parser.Mint(parts, "typescript", file, dist.Source)
+	if err != nil {
+		return parser.FunctionNode{}, false
+	}
+	return parser.FunctionNode{
+		Node: base,
+		FunctionMeta: model.FunctionMeta{
+			StartLine:            int(node.StartPoint().Row) + 1,
+			EndLine:              int(node.EndPoint().Row) + 1,
+			Exported:             exported,
+			Tag:                  tag,
+			Params:               params,
+			Returns:              returns,
+			ContractCompleteness: completeness,
+		},
+	}, true
 }
 
-func extractClassMembers(classNode *sitter.Node, source []byte, filepath string, types map[string]typeInfo, isTestFile bool) []parser.FunctionNode {
+func extractClassMembers(dist distresolver.Distribution, modulePath string, classNode *sitter.Node, source []byte, file string, types map[string]typeInfo, isTestFile bool) []parser.FunctionNode {
 	className := ""
 	for i := 0; i < int(classNode.NamedChildCount()); i++ {
 		c := classNode.NamedChild(i)
@@ -287,14 +376,16 @@ func extractClassMembers(classNode *sitter.Node, source []byte, filepath string,
 	for i := 0; i < int(body.NamedChildCount()); i++ {
 		child := body.NamedChild(i)
 		if child.Type() == "method_definition" {
-			fn := extractMethodDef(child, className, source, filepath, types, isTestFile)
-			funcs = append(funcs, fn)
+			fn, ok := extractMethodDef(dist, modulePath, child, className, source, file, types, isTestFile)
+			if ok {
+				funcs = append(funcs, fn)
+			}
 		}
 	}
 	return funcs
 }
 
-func extractMethodDef(node *sitter.Node, className string, source []byte, filepath string, types map[string]typeInfo, isTestFile bool) parser.FunctionNode {
+func extractMethodDef(dist distresolver.Distribution, modulePath string, node *sitter.Node, className string, source []byte, file string, types map[string]typeInfo, isTestFile bool) (parser.FunctionNode, bool) {
 	name := ""
 	exported := false
 	isConstructor := false
@@ -317,39 +408,42 @@ func extractMethodDef(node *sitter.Node, className string, source []byte, filepa
 	params := extractFormalParams(node, source, types)
 	returns := extractReturnType(node, source, types)
 
-	kind := "method"
 	if isConstructor {
-		kind = "constructor"
 		returns = parser.ReturnSpec{Values: []parser.ReturnValue{}}
 	}
-
-	qualifiedName := className + "." + name
 
 	tag := "application"
 	if isTestFile {
 		tag = "test"
 	}
-
 	completeness := "full"
 	if hasAnyType(params, returns) {
 		completeness = "partial"
 	}
 
-	return parser.FunctionNode{
-		Name:                 name,
-		QualifiedName:        qualifiedName,
-		File:                 filepath,
-		Language:             "typescript",
-		StartLine:            int(node.StartPoint().Row) + 1,
-		EndLine:              int(node.EndPoint().Row) + 1,
-		Kind:                 kind,
-		Receiver:             className,
-		Exported:             exported,
-		Tag:                  tag,
-		Parameters:           params,
-		Returns:              returns,
-		ContractCompleteness: completeness,
+	parts := model.IdentityParts{
+		Distribution: dist.Name,
+		ModulePath:   modulePath,
+		Container:    className,
+		Name:         name,
 	}
+	base, err := parser.Mint(parts, "typescript", file, dist.Source)
+	if err != nil {
+		return parser.FunctionNode{}, false
+	}
+	return parser.FunctionNode{
+		Node: base,
+		FunctionMeta: model.FunctionMeta{
+			StartLine:            int(node.StartPoint().Row) + 1,
+			EndLine:              int(node.EndPoint().Row) + 1,
+			Exported:             exported,
+			Tag:                  tag,
+			Receiver:             className,
+			Params:               params,
+			Returns:              returns,
+			ContractCompleteness: completeness,
+		},
+	}, true
 }
 
 func extractFormalParams(node *sitter.Node, source []byte, types map[string]typeInfo) []parser.Param {

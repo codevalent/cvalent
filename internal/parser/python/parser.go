@@ -2,12 +2,15 @@ package python
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/python"
 
+	"github.com/codevalent/cvalent/internal/model"
 	"github.com/codevalent/cvalent/internal/parser"
+	"github.com/codevalent/cvalent/internal/parser/distresolver"
 )
 
 type Parser struct{}
@@ -16,35 +19,60 @@ func New() *Parser { return &Parser{} }
 
 func (p *Parser) Language() string { return "python" }
 
-func (p *Parser) Parse(filepath string, source []byte) ([]parser.FunctionNode, error) {
+func (p *Parser) Parse(run *parser.Run, file string, source []byte) ([]parser.FunctionNode, error) {
 	tree, err := sitter.ParseCtx(context.Background(), source, python.GetLanguage())
 	if err != nil {
 		return nil, err
 	}
 
+	dist, err := run.Resolver.Resolve(file)
+	if err != nil {
+		return nil, err
+	}
+	modulePath := pythonModulePath(file, dist.ManifestPath, run.Repo.Root)
 	classes := extractClasses(tree, source)
-	isTestFile := strings.HasPrefix(lastPathComponent(filepath), "test_") ||
-		strings.HasSuffix(filepath, "_test.py")
+	isTestFile := strings.HasPrefix(lastPathComponent(file), "test_") ||
+		strings.HasSuffix(file, "_test.py")
 
 	var funcs []parser.FunctionNode
-
 	for i := 0; i < int(tree.NamedChildCount()); i++ {
 		child := tree.NamedChild(i)
 		switch child.Type() {
 		case "function_definition":
-			fn := extractFunction(child, source, filepath, "", classes, isTestFile)
-			funcs = append(funcs, fn)
+			fn, ok := extractFunction(dist, modulePath, child, source, file, "", classes, isTestFile)
+			if ok {
+				funcs = append(funcs, fn)
+			}
 		case "decorated_definition":
-			fn := extractDecoratedFunc(child, source, filepath, "", classes, isTestFile)
-			if fn != nil {
-				funcs = append(funcs, *fn)
+			fn, ok := extractDecoratedFunc(dist, modulePath, child, source, file, "", classes, isTestFile)
+			if ok {
+				funcs = append(funcs, fn)
 			}
 		case "class_definition":
-			funcs = append(funcs, extractClassMethods(child, source, filepath, classes, isTestFile)...)
+			funcs = append(funcs, extractClassMethods(dist, modulePath, child, source, file, classes, isTestFile)...)
 		}
 	}
 
 	return funcs, nil
+}
+
+// pythonModulePath converts a file path to a dotted module path relative
+// to the manifest dir (or repo root). Strips a leading "src/" if present
+// and the trailing ".py".
+func pythonModulePath(file, manifestPath, repoRoot string) string {
+	abs, _ := filepath.Abs(file)
+	base := repoRoot
+	if manifestPath != "" {
+		base = filepath.Dir(manifestPath)
+	}
+	rel, err := filepath.Rel(base, abs)
+	if err != nil {
+		return ""
+	}
+	rel = filepath.ToSlash(rel)
+	rel = strings.TrimSuffix(rel, ".py")
+	rel = strings.TrimPrefix(rel, "src/")
+	return strings.ReplaceAll(rel, "/", ".")
 }
 
 type classInfo struct {
@@ -106,14 +134,17 @@ func extractClassFields(body *sitter.Node, source []byte) []parser.Field {
 	return fields
 }
 
-func extractFunction(node *sitter.Node, source []byte, filepath, className string, classes map[string]classInfo, isTestFile bool) parser.FunctionNode {
+func extractFunction(dist distresolver.Distribution, modulePath string, node *sitter.Node, source []byte, file, className string, classes map[string]classInfo, isTestFile bool) (parser.FunctionNode, bool) {
 	name := findChildContent(node, "identifier", source)
+	if name == "" {
+		return parser.FunctionNode{}, false
+	}
 	params := extractParams(node, source, classes, className != "")
 	returns := extractReturnType(node, source, classes)
 
 	exported := !strings.HasPrefix(name, "_") || strings.HasPrefix(name, "__")
 	if strings.HasPrefix(name, "__") && strings.HasSuffix(name, "__") {
-		exported = true // dunder methods
+		exported = true
 	}
 
 	tag := "application"
@@ -121,46 +152,46 @@ func extractFunction(node *sitter.Node, source []byte, filepath, className strin
 		tag = "test"
 	}
 
-	kind := "function"
-	qualifiedName := name
-	receiver := ""
-	if className != "" {
-		kind = "method"
-		qualifiedName = className + "." + name
-		receiver = className
+	parts := model.IdentityParts{
+		Distribution: dist.Name,
+		ModulePath:   modulePath,
+		Container:    className,
+		Name:         name,
 	}
-
+	base, err := parser.Mint(parts, "python", file, dist.Source)
+	if err != nil {
+		return parser.FunctionNode{}, false
+	}
 	completeness := determineCompleteness(params, returns)
-
 	return parser.FunctionNode{
-		Name:                 name,
-		QualifiedName:        qualifiedName,
-		File:                 filepath,
-		Language:             "python",
-		StartLine:            int(node.StartPoint().Row) + 1,
-		EndLine:              int(node.EndPoint().Row) + 1,
-		Kind:                 kind,
-		Receiver:             receiver,
-		Exported:             exported,
-		Tag:                  tag,
-		Parameters:           params,
-		Returns:              returns,
-		ContractCompleteness: completeness,
-	}
+		Node: base,
+		FunctionMeta: model.FunctionMeta{
+			StartLine:            int(node.StartPoint().Row) + 1,
+			EndLine:              int(node.EndPoint().Row) + 1,
+			Exported:             exported,
+			Tag:                  tag,
+			Receiver:             className,
+			Params:               params,
+			Returns:              returns,
+			ContractCompleteness: completeness,
+		},
+	}, true
 }
 
-func extractDecoratedFunc(node *sitter.Node, source []byte, filepath, className string, classes map[string]classInfo, isTestFile bool) *parser.FunctionNode {
+func extractDecoratedFunc(dist distresolver.Distribution, modulePath string, node *sitter.Node, source []byte, file, className string, classes map[string]classInfo, isTestFile bool) (parser.FunctionNode, bool) {
 	funcNode := findChild(node, "function_definition")
 	if funcNode == nil {
-		return nil
+		return parser.FunctionNode{}, false
 	}
-	fn := extractFunction(funcNode, source, filepath, className, classes, isTestFile)
-	// Adjust line numbers to include decorator
+	fn, ok := extractFunction(dist, modulePath, funcNode, source, file, className, classes, isTestFile)
+	if !ok {
+		return parser.FunctionNode{}, false
+	}
 	fn.StartLine = int(node.StartPoint().Row) + 1
-	return &fn
+	return fn, true
 }
 
-func extractClassMethods(classNode *sitter.Node, source []byte, filepath string, classes map[string]classInfo, isTestFile bool) []parser.FunctionNode {
+func extractClassMethods(dist distresolver.Distribution, modulePath string, classNode *sitter.Node, source []byte, file string, classes map[string]classInfo, isTestFile bool) []parser.FunctionNode {
 	className := findChildContent(classNode, "identifier", source)
 	body := findChild(classNode, "block")
 	if body == nil {
@@ -172,15 +203,14 @@ func extractClassMethods(classNode *sitter.Node, source []byte, filepath string,
 		child := body.NamedChild(i)
 		switch child.Type() {
 		case "function_definition":
-			fn := extractFunction(child, source, filepath, className, classes, isTestFile)
-			funcs = append(funcs, fn)
+			fn, ok := extractFunction(dist, modulePath, child, source, file, className, classes, isTestFile)
+			if ok {
+				funcs = append(funcs, fn)
+			}
 		case "decorated_definition":
-			fn := extractDecoratedFunc(child, source, filepath, className, classes, isTestFile)
-			if fn != nil {
-				fn.Kind = "method"
-				fn.Receiver = className
-				fn.QualifiedName = className + "." + fn.Name
-				funcs = append(funcs, *fn)
+			fn, ok := extractDecoratedFunc(dist, modulePath, child, source, file, className, classes, isTestFile)
+			if ok {
+				funcs = append(funcs, fn)
 			}
 		}
 	}

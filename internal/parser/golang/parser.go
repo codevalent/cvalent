@@ -1,14 +1,32 @@
+// Package golang is the Go function-extractor parser.
+//
+// Identity at Rung 0 follows docs/identity-spec.md:
+//
+//   - Distribution comes from go.mod via internal/parser/distresolver.
+//   - Module path is the package import path inside the distribution
+//     (e.g. "internal/widget"), computed from the file's directory
+//     relative to the directory containing go.mod.
+//   - Container for methods is the receiver type without any pointer
+//     prefix; pointer-vs-value is carried in PointerReceiver and the
+//     canonicalizer wraps as "(*T)" if set.
+//   - Generics on the receiver type ("Box[T]") and on the function name
+//     ("Map[T any]") are stripped by Canonicalize.
+//
+// Identities are minted only via parser.Mint.
 package golang
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"unicode"
 
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/golang"
 
+	"github.com/codevalent/cvalent/internal/model"
 	"github.com/codevalent/cvalent/internal/parser"
+	"github.com/codevalent/cvalent/internal/parser/distresolver"
 )
 
 // Parser extracts function nodes from Go source files using tree-sitter.
@@ -18,44 +36,154 @@ func New() *Parser { return &Parser{} }
 
 func (p *Parser) Language() string { return "go" }
 
-func (p *Parser) Parse(filepath string, source []byte) ([]parser.FunctionNode, error) {
+func (p *Parser) Parse(run *parser.Run, file string, source []byte) ([]parser.FunctionNode, error) {
 	tree, err := sitter.ParseCtx(context.Background(), source, golang.GetLanguage())
 	if err != nil {
 		return nil, err
 	}
 
-	pkg := extractPackage(tree, source)
+	dist, err := run.Resolver.Resolve(file)
+	if err != nil {
+		return nil, err
+	}
+	modulePath := goModulePath(file, dist.ManifestPath, run.Repo.Root)
+
 	structs := extractStructs(tree, source)
-	isTestFile := strings.HasSuffix(filepath, "_test.go")
+	isTestFile := strings.HasSuffix(file, "_test.go")
 
 	var funcs []parser.FunctionNode
-
-	// Walk top-level declarations
 	for i := 0; i < int(tree.NamedChildCount()); i++ {
 		child := tree.NamedChild(i)
 		switch child.Type() {
 		case "function_declaration":
-			fn := extractFunction(child, source, filepath, pkg, structs, isTestFile)
-			funcs = append(funcs, fn)
+			fn, ok, err := buildFunction(dist, modulePath, file, child, source, structs, isTestFile)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				funcs = append(funcs, fn)
+			}
 		case "method_declaration":
-			fn := extractMethod(child, source, filepath, pkg, structs, isTestFile)
-			funcs = append(funcs, fn)
+			fn, ok, err := buildMethod(dist, modulePath, file, child, source, structs, isTestFile)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				funcs = append(funcs, fn)
+			}
 		}
 	}
-
 	return funcs, nil
+}
+
+// goModulePath computes the in-module package path for `file` given the
+// resolver's manifest path (path to go.mod) and the repo root. Result is
+// in slash form, e.g. "internal/widget".
+func goModulePath(file, manifestPath, repoRoot string) string {
+	absFile, _ := filepath.Abs(file)
+	dir := filepath.Dir(absFile)
+	moduleDir := repoRoot
+	if manifestPath != "" {
+		moduleDir = filepath.Dir(manifestPath)
+	}
+	rel, err := filepath.Rel(moduleDir, dir)
+	if err != nil || rel == "." {
+		return ""
+	}
+	return filepath.ToSlash(rel)
+}
+
+func buildFunction(dist distresolver.Distribution, modulePath, file string, node *sitter.Node, source []byte, structs map[string]structInfo, isTestFile bool) (parser.FunctionNode, bool, error) {
+	nameNode := node.ChildByFieldName("name")
+	if nameNode == nil {
+		return parser.FunctionNode{}, false, nil
+	}
+	name := nameNode.Content(source)
+
+	params := extractParams(node.ChildByFieldName("parameters"), source, structs)
+	returns := extractReturns(node.ChildByFieldName("result"), source, structs)
+
+	parts := model.IdentityParts{
+		Distribution: dist.Name,
+		ModulePath:   modulePath,
+		Name:         name,
+	}
+	base, err := parser.Mint(parts, "go", file, dist.Source)
+	if err != nil {
+		return parser.FunctionNode{}, false, err
+	}
+	tag := "application"
+	if isTestFile && isTestFuncName(name) {
+		tag = "test"
+	}
+	return parser.FunctionNode{
+		Node: base,
+		FunctionMeta: model.FunctionMeta{
+			StartLine:            int(node.StartPoint().Row) + 1,
+			EndLine:              int(node.EndPoint().Row) + 1,
+			Exported:             isExported(name),
+			Tag:                  tag,
+			Params:               params,
+			Returns:              returns,
+			ContractCompleteness: "full",
+		},
+	}, true, nil
+}
+
+func buildMethod(dist distresolver.Distribution, modulePath, file string, node *sitter.Node, source []byte, structs map[string]structInfo, isTestFile bool) (parser.FunctionNode, bool, error) {
+	nameNode := node.ChildByFieldName("name")
+	if nameNode == nil {
+		return parser.FunctionNode{}, false, nil
+	}
+	name := nameNode.Content(source)
+	receiverType, pointer := extractReceiver(node, source)
+
+	params := extractParams(node.ChildByFieldName("parameters"), source, structs)
+	returns := extractReturns(node.ChildByFieldName("result"), source, structs)
+
+	parts := model.IdentityParts{
+		Distribution:    dist.Name,
+		ModulePath:      modulePath,
+		Container:       receiverType,
+		PointerReceiver: pointer,
+		Name:            name,
+	}
+	base, err := parser.Mint(parts, "go", file, dist.Source)
+	if err != nil {
+		return parser.FunctionNode{}, false, err
+	}
+	tag := "application"
+	if isTestFile && isTestFuncName(name) {
+		tag = "test"
+	}
+	receiverDisplay := receiverType
+	if pointer {
+		receiverDisplay = "*" + receiverType
+	}
+	return parser.FunctionNode{
+		Node: base,
+		FunctionMeta: model.FunctionMeta{
+			StartLine:            int(node.StartPoint().Row) + 1,
+			EndLine:              int(node.EndPoint().Row) + 1,
+			Exported:             isExported(name),
+			Tag:                  tag,
+			Receiver:             receiverDisplay,
+			PointerReceiver:      pointer,
+			Params:               params,
+			Returns:              returns,
+			ContractCompleteness: "full",
+		},
+	}, true, nil
 }
 
 func extractPackage(tree *sitter.Node, source []byte) string {
 	for i := 0; i < int(tree.NamedChildCount()); i++ {
 		child := tree.NamedChild(i)
 		if child.Type() == "package_clause" {
-			// package_clause -> package_identifier (may be field "name" or a named child)
 			nameNode := child.ChildByFieldName("name")
 			if nameNode != nil {
 				return nameNode.Content(source)
 			}
-			// Fallback: look for package_identifier child directly
 			for j := 0; j < int(child.NamedChildCount()); j++ {
 				c := child.NamedChild(j)
 				if c.Type() == "package_identifier" {
@@ -100,9 +228,8 @@ func extractStructs(tree *sitter.Node, source []byte) map[string]structInfo {
 
 func extractStructFields(structNode *sitter.Node, source []byte) []parser.Field {
 	var fields []parser.Field
-	fieldList := structNode.ChildByFieldName("body") // field_declaration_list
+	fieldList := structNode.ChildByFieldName("body")
 	if fieldList == nil {
-		// Try finding it as named child
 		for i := 0; i < int(structNode.NamedChildCount()); i++ {
 			c := structNode.NamedChild(i)
 			if c.Type() == "field_declaration_list" {
@@ -125,8 +252,6 @@ func extractStructFields(structNode *sitter.Node, source []byte) []parser.Field 
 		}
 		typeStr := typeNode.Content(source)
 		nullable := isNullableType(typeNode, source)
-
-		// Collect all field names (Go can have `X, Y int`)
 		nameNode := fieldDecl.ChildByFieldName("name")
 		if nameNode != nil {
 			f := parser.Field{Name: nameNode.Content(source), Type: typeStr}
@@ -139,99 +264,34 @@ func extractStructFields(structNode *sitter.Node, source []byte) []parser.Field 
 	return fields
 }
 
-func extractFunction(node *sitter.Node, source []byte, filepath, pkg string, structs map[string]structInfo, isTestFile bool) parser.FunctionNode {
-	nameNode := node.ChildByFieldName("name")
-	name := ""
-	if nameNode != nil {
-		name = nameNode.Content(source)
-	}
-
-	params := extractParams(node.ChildByFieldName("parameters"), source, structs)
-	returns := extractReturns(node.ChildByFieldName("result"), source, structs)
-
-	tag := "application"
-	if isTestFile && isTestFuncName(name) {
-		tag = "test"
-	}
-
-	return parser.FunctionNode{
-		Name:                 name,
-		QualifiedName:        pkg + "." + name,
-		File:                 filepath,
-		Package:              pkg,
-		Language:             "go",
-		StartLine:            int(node.StartPoint().Row) + 1,
-		EndLine:              int(node.EndPoint().Row) + 1,
-		Kind:                 "function",
-		Exported:             isExported(name),
-		Tag:                  tag,
-		Parameters:           params,
-		Returns:              returns,
-		ContractCompleteness: "full",
-	}
-}
-
-func extractMethod(node *sitter.Node, source []byte, filepath, pkg string, structs map[string]structInfo, isTestFile bool) parser.FunctionNode {
-	nameNode := node.ChildByFieldName("name")
-	name := ""
-	if nameNode != nil {
-		name = nameNode.Content(source)
-	}
-
-	receiver := extractReceiver(node, source)
-	receiverTypeName := strings.TrimPrefix(receiver, "*")
-
-	params := extractParams(node.ChildByFieldName("parameters"), source, structs)
-	returns := extractReturns(node.ChildByFieldName("result"), source, structs)
-
-	qualifiedName := pkg + "." + receiverTypeName + "." + name
-
-	tag := "application"
-	if isTestFile && isTestFuncName(name) {
-		tag = "test"
-	}
-
-	return parser.FunctionNode{
-		Name:                 name,
-		QualifiedName:        qualifiedName,
-		File:                 filepath,
-		Package:              pkg,
-		Language:             "go",
-		StartLine:            int(node.StartPoint().Row) + 1,
-		EndLine:              int(node.EndPoint().Row) + 1,
-		Kind:                 "method",
-		Receiver:             receiver,
-		Exported:             isExported(name),
-		Tag:                  tag,
-		Parameters:           params,
-		Returns:              returns,
-		ContractCompleteness: "full",
-	}
-}
-
-func extractReceiver(node *sitter.Node, source []byte) string {
+// extractReceiver returns the receiver type without a pointer prefix and
+// a bool indicating pointer-receiver.
+func extractReceiver(node *sitter.Node, source []byte) (string, bool) {
 	receiverNode := node.ChildByFieldName("receiver")
 	if receiverNode == nil {
-		return ""
+		return "", false
 	}
-	// parameter_list with one parameter_declaration inside
 	for i := 0; i < int(receiverNode.NamedChildCount()); i++ {
 		param := receiverNode.NamedChild(i)
 		if param.Type() == "parameter_declaration" {
 			typeNode := param.ChildByFieldName("type")
-			if typeNode != nil {
-				return typeNode.Content(source)
+			if typeNode == nil {
+				continue
 			}
+			raw := typeNode.Content(source)
+			if strings.HasPrefix(raw, "*") {
+				return strings.TrimPrefix(raw, "*"), true
+			}
+			return raw, false
 		}
 	}
-	return ""
+	return "", false
 }
 
 func extractParams(paramsNode *sitter.Node, source []byte, structs map[string]structInfo) []parser.Param {
 	if paramsNode == nil {
 		return []parser.Param{}
 	}
-
 	var params []parser.Param
 	for i := 0; i < int(paramsNode.NamedChildCount()); i++ {
 		child := paramsNode.NamedChild(i)
@@ -256,13 +316,11 @@ func extractSingleParam(node *sitter.Node, source []byte, structs map[string]str
 	typeStr := typeNode.Content(source)
 	nullable := isNullableType(typeNode, source)
 
-	// Collect all names (Go allows `a, b int`)
 	var names []string
 	nameNode := node.ChildByFieldName("name")
 	if nameNode != nil {
 		names = append(names, nameNode.Content(source))
 	}
-
 	if len(names) == 0 {
 		names = []string{""}
 	}
@@ -270,8 +328,6 @@ func extractSingleParam(node *sitter.Node, source []byte, structs map[string]str
 	var params []parser.Param
 	for _, name := range names {
 		p := parser.Param{Name: name}
-
-		// Try struct expansion
 		baseType := strings.TrimPrefix(typeStr, "*")
 		if si, ok := structs[baseType]; ok {
 			p.Type = typeStr
@@ -279,21 +335,16 @@ func extractSingleParam(node *sitter.Node, source []byte, structs map[string]str
 		} else {
 			p.Type = typeStr
 		}
-
 		if nullable {
 			p.Nullable = true
 		}
 		if isVariadic {
 			p.Variadic = true
 		}
-
-		// If the base type is not in same-file structs and is a non-primitive complex type,
-		// use type_expr instead of type (for types we can't expand)
 		if shouldUseTypeExpr(typeStr, structs) {
 			p.Type = ""
 			p.TypeExpr = typeStr
 		}
-
 		params = append(params, p)
 	}
 	return params
@@ -307,27 +358,19 @@ func extractVariadicParam(node *sitter.Node, source []byte) parser.Param {
 	if nameNode != nil {
 		name = nameNode.Content(source)
 	}
-
 	typeStr := ""
 	if typeNode != nil {
 		typeStr = "..." + typeNode.Content(source)
 	}
-
-	return parser.Param{
-		Name:     name,
-		Type:     typeStr,
-		Variadic: true,
-	}
+	return parser.Param{Name: name, Type: typeStr, Variadic: true}
 }
 
 func extractReturns(resultNode *sitter.Node, source []byte, structs map[string]structInfo) parser.ReturnSpec {
 	if resultNode == nil {
 		return parser.ReturnSpec{Values: []parser.ReturnValue{}}
 	}
-
 	switch resultNode.Type() {
 	case "parameter_list":
-		// Multiple returns: (Type1, Type2) or (name Type1, name Type2)
 		var values []parser.ReturnValue
 		for i := 0; i < int(resultNode.NamedChildCount()); i++ {
 			child := resultNode.NamedChild(i)
@@ -336,12 +379,8 @@ func extractReturns(resultNode *sitter.Node, source []byte, structs map[string]s
 				values = append(values, rv)
 			}
 		}
-		return parser.ReturnSpec{
-			Multiple: len(values) > 1,
-			Values:   values,
-		}
+		return parser.ReturnSpec{Multiple: len(values) > 1, Values: values}
 	default:
-		// Single return type (no parens)
 		rv := singleReturnValue(resultNode, source, structs)
 		return parser.ReturnSpec{Values: []parser.ReturnValue{rv}}
 	}
@@ -358,7 +397,6 @@ func extractReturnValue(node *sitter.Node, source []byte, structs map[string]str
 	if typeNode != nil {
 		typeStr := typeNode.Content(source)
 		rv.Nullable = isNullableType(typeNode, source) || typeStr == "error"
-
 		baseType := strings.TrimPrefix(typeStr, "*")
 		if si, ok := structs[baseType]; ok {
 			rv.Type = typeStr
@@ -376,7 +414,6 @@ func singleReturnValue(node *sitter.Node, source []byte, structs map[string]stru
 	typeStr := node.Content(source)
 	rv := parser.ReturnValue{}
 	rv.Nullable = isNullableType(node, source) || typeStr == "error"
-
 	baseType := strings.TrimPrefix(typeStr, "*")
 	if si, ok := structs[baseType]; ok {
 		rv.Type = typeStr
@@ -410,38 +447,24 @@ func isTestFuncName(name string) bool {
 		strings.HasPrefix(name, "Example")
 }
 
-// shouldUseTypeExpr returns true if a type should be recorded as type_expr
-// rather than type — when it references a non-primitive type not defined in the same file.
 func shouldUseTypeExpr(typeStr string, structs map[string]structInfo) bool {
-	// Strip pointer/slice prefixes to get base type
 	base := typeStr
 	for strings.HasPrefix(base, "*") || strings.HasPrefix(base, "[]") {
 		base = strings.TrimPrefix(base, "*")
 		base = strings.TrimPrefix(base, "[]")
 	}
-
-	// Primitives and builtins are always type (not type_expr)
 	if isPrimitive(base) {
 		return false
 	}
-
-	// If it's a qualified type (has dot), it's external — type_expr
 	if strings.Contains(base, ".") {
-		// But standard library types like testing.T are still "type"
 		return false
 	}
-
-	// Interface types inline
 	if base == "interface{}" {
 		return false
 	}
-
-	// If defined in same file structs, use type (will be expanded)
 	if _, ok := structs[base]; ok {
 		return false
 	}
-
-	// Unknown type not in same file — type_expr
 	return true
 }
 

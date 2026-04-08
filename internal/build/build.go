@@ -11,6 +11,7 @@ import (
 	"github.com/codevalent/cvalent/internal/config"
 	"github.com/codevalent/cvalent/internal/graph"
 	"github.com/codevalent/cvalent/internal/parser"
+	"github.com/codevalent/cvalent/internal/parser/distresolver"
 	goparser "github.com/codevalent/cvalent/internal/parser/golang"
 	javaparser "github.com/codevalent/cvalent/internal/parser/java"
 	pyparser "github.com/codevalent/cvalent/internal/parser/python"
@@ -18,6 +19,16 @@ import (
 	"github.com/codevalent/cvalent/internal/resolver"
 	"github.com/codevalent/cvalent/internal/walker"
 )
+
+// languageManifest maps a parser language identifier to the manifest
+// spec used to resolve its distribution. New languages add an entry
+// here when their parser lands.
+var languageManifest = map[string]distresolver.ManifestSpec{
+	"go":         distresolver.GoManifestSpec,
+	"java":       distresolver.JavaManifestSpec,
+	"typescript": distresolver.NpmManifestSpec,
+	"python":     distresolver.PythonManifestSpec,
+}
 
 // Result contains build output statistics.
 type Result struct {
@@ -71,6 +82,25 @@ func Run(opts Options) (*Result, error) {
 		"python":     pyparser.New(),
 	}
 
+	// Per-language Run state: one Resolver per language, all sharing the
+	// same RepoContext (same git root). Identity minting flows through
+	// distresolver per-file.
+	repoCtx, err := distresolver.NewRepoContext(opts.Root)
+	if err != nil {
+		return nil, fmt.Errorf("repo context: %w", err)
+	}
+	runs := make(map[string]*parser.Run, len(parsers))
+	for lang := range parsers {
+		spec, ok := languageManifest[lang]
+		if !ok {
+			continue
+		}
+		runs[lang] = &parser.Run{
+			Resolver: distresolver.New(repoCtx, spec),
+			Repo:     repoCtx,
+		}
+	}
+
 	// Parse all files
 	var allNodes []parser.FunctionNode
 	fileCount := 0
@@ -79,27 +109,21 @@ func Run(opts Options) (*Result, error) {
 		if !ok {
 			continue
 		}
+		run := runs[lang]
 		for _, file := range files {
 			fullPath := filepath.Join(opts.Root, file)
 			source, err := os.ReadFile(fullPath)
 			if err != nil {
 				continue
 			}
-			nodes, err := p.Parse(file, source)
+			nodes, err := p.Parse(run, fullPath, source)
 			if err != nil {
 				continue
 			}
-			// Set module from directory path if not already set by parser
-			dir := filepath.Dir(file)
+			// Stamp the relative path on the node so downstream
+			// presenters render the same paths users see in their tree.
 			for i := range nodes {
-				if nodes[i].Package == "" {
-					nodes[i].Package = dir
-				}
-				// Module is always directory-based for domain/coupling queries
-				nodes[i].QualifiedName = dir + "/" + nodes[i].Name
-				if nodes[i].Receiver != "" {
-					nodes[i].QualifiedName = dir + "/" + nodes[i].Receiver + "." + nodes[i].Name
-				}
+				nodes[i].File = file
 			}
 			allNodes = append(allNodes, nodes...)
 			fileCount++
@@ -194,7 +218,7 @@ func nodeToProps(node parser.FunctionNode) graphdb.Props {
 		"name":                  node.Name,
 		"qualified_name":        node.QualifiedName,
 		"file":                  node.File,
-		"package":               node.Package,
+		"package":               node.ModulePath,
 		"module":                module,
 		"language":              node.Language,
 		"start_line":            float64(node.StartLine),
