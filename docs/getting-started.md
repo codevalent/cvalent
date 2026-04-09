@@ -30,6 +30,16 @@ Download from [GitHub Releases](https://github.com/codevalent/cvalent/releases) 
 go install github.com/codevalent/cvalent/cmd/cvalent@latest
 ```
 
+## Upgrading from pre-0.2.0
+
+If you installed cvalent before 0.2.0, your project has a `.cvalent/graph.db` file (GoraphDB format). Run the migration command once to convert it to the new SQLite store:
+
+```bash
+cvalent migrate-store
+```
+
+This reads the legacy store and writes `.cvalent/store.db`. The old `graph.db` is left in place but is no longer read. See `cvalent migrate-store --help` for exit codes and flags.
+
 ## First Project
 
 Navigate to any Go, Java, TypeScript, or Python project:
@@ -56,7 +66,7 @@ Initialized .cvalent/ with languages: [go typescript]
 cvalent build
 ```
 
-Parses all source files with tree-sitter, resolves cross-file relationships, and stores the graph in `.cvalent/graph.db`. A full rebuild runs every time -- there is no incremental mode yet.
+Parses all source files with tree-sitter, resolves cross-file relationships, and stores the graph in `.cvalent/store.db`. A full rebuild runs every time -- there is no incremental mode yet.
 
 ### 3. Query
 
@@ -91,5 +101,5 @@ See [mcp-setup.md](mcp-setup.md) for editor configuration.
 ## What just happened
 
 1. `init` scanned your project for `.go`, `.java`, `.ts`, `.tsx`, `.py` files and wrote a config
-2. `build` parsed every detected file, extracted function contracts (params, returns, completeness), resolved imports and call edges across files, and stored everything in a local GoraphDB database
-3. `query` ran graph queries against that database -- no network, no cloud, everything local
+2. `build` parsed every detected file, extracted function contracts (params, returns, completeness), resolved imports and call edges across files, and stored everything in a local SQLite store
+3. `query` ran graph queries against that store -- no network, no cloud, everything local

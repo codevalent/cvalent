@@ -23,7 +23,7 @@ cvalent build           # build entire project
 cvalent build src/      # build only files under src/
 ```
 
-Performs a full rebuild every time. The graph is stored at `.cvalent/graph.db`.
+Performs a full rebuild every time. The graph is stored at `.cvalent/store.db`.
 
 ### `parse <file>`
 
@@ -32,6 +32,30 @@ Parse a single file and print extracted functions. Useful for debugging parser o
 ```bash
 cvalent parse src/main.go
 ```
+
+### `migrate-store`
+
+Convert legacy `.cvalent/graph.db` (GoraphDB) to `.cvalent/store.db` (SQLite).
+
+```bash
+cvalent migrate-store
+cvalent migrate-store --repo-path /path/to/repo
+```
+
+**Flags:**
+
+| Flag          | Description                                                    |
+|---------------|----------------------------------------------------------------|
+| `--repo-path` | Repo path for distresolver re-resolution (defaults to cwd)     |
+
+**Exit codes:**
+
+| Code | Meaning                            |
+|------|------------------------------------|
+| 0    | success                            |
+| 1    | legacy store missing               |
+| 2    | new store already exists           |
+| 3    | legacy store unreadable/corrupt    |
 
 ### `serve`
 

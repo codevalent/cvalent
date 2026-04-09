@@ -1,0 +1,20 @@
+name: Parity (Postgres)
+
+on:
+  push:
+    branches: [rung-0-rebuild]
+  pull_request:
+
+jobs:
+  parity-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+      - name: Postgres parity tests (Neon ephemeral)
+        env:
+          NEON_API_TOKEN: ${{ secrets.NEON_API_TOKEN }}
+        run: go test -tags=parity_postgres -count=1 -v ./internal/parity/...

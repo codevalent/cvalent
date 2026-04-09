@@ -37,7 +37,7 @@ cmd/
 internal/
   build/             # orchestrates parse + resolve + graph construction
   config/            # .cvalent/ directory, config.json, language detection
-  graph/             # GoraphDB wrapper (open, close, node/edge operations)
+  store/             # SQLite storage layer (migrations, queries)
   mcp/               # MCP server (stdio JSON-RPC, tool definitions)
   parser/            # tree-sitter parsing, FunctionNode extraction per language
   query/             # query engine (callers, impact, coupling, etc.)
@@ -49,7 +49,7 @@ Key design decisions:
 
 - **Single query engine**: CLI and MCP server both call the same `query.*` functions. CLI formats for terminal, MCP formats for JSON.
 - **`internal/` only**: all packages are internal. The public API is the CLI binary and MCP protocol.
-- **No external dependencies for core logic**: tree-sitter, GoraphDB, and cobra are the only significant dependencies.
+- **No external dependencies for core logic**: tree-sitter, modernc.org/sqlite, and cobra are the only significant dependencies.
 
 ## Making Changes
 
@@ -68,7 +68,7 @@ Language parsers implement the `LanguageParser` interface in `internal/parser/ty
 
 ```go
 type LanguageParser interface {
-    Parse(filepath string, source []byte) ([]FunctionNode, error)
+    Parse(run *Run, filepath string, source []byte) ([]FunctionNode, error)
     Language() string
 }
 ```

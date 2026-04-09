@@ -6,10 +6,14 @@ on:
 
 permissions:
   contents: write
+  id-token: write      # OIDC for build provenance attestations
+  attestations: write  # actions/attest-build-provenance
 
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -17,8 +21,54 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25.x"
+      - id: meta
+        run: echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
       - uses: goreleaser/goreleaser-action@v6
         with:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: dist/*
+      - name: Upload checksums
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/checksums.txt
+
+  smoke-test:
+    needs: goreleaser
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: cvalent_*_linux_amd64.tar.gz
+            unpack: tar xzf
+          - os: macos-latest
+            asset: cvalent_*_darwin_arm64.zip
+            unpack: unzip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ needs.goreleaser.outputs.tag }}" \
+            --pattern "${{ matrix.asset }}" --dir /tmp/release
+      - name: Unpack and verify
+        run: |
+          cd /tmp/release
+          ${{ matrix.unpack }} ${{ matrix.asset }} || true
+          chmod +x cvalent 2>/dev/null || true
+          ./cvalent --version
+      - name: Smoke test
+        run: |
+          mkdir /tmp/smoke && cd /tmp/smoke
+          echo 'module example.com/smoke' > go.mod
+          mkdir -p widget
+          echo 'package widget
+          func Add(a, b int) int { return a + b }' > widget/x.go
+          /tmp/release/cvalent build
+          /tmp/release/cvalent query domains

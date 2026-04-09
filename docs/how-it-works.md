@@ -14,7 +14,7 @@ Source files
 [2] Resolve (cross-file) --> Call edges, import edges, test edges
      |
      v
-[3] Build (GoraphDB) --> Persistent graph database
+[3] Build (SQLite) --> Persistent store
      |
      v
 [4] Query (CLI / MCP) --> Answers
@@ -47,7 +47,7 @@ The resolver connects function nodes across files:
 
 ### 3. Build
 
-The resolved graph (nodes + edges) is written to [GoraphDB](https://github.com/mstrYoda/goraphdb), an embedded graph database backed by BoltDB. The database file lives at `.cvalent/graph.db`.
+The resolved graph (nodes + edges) is written to an embedded SQLite store. The database file lives at `.cvalent/store.db`.
 
 Every `cvalent build` performs a full rebuild -- no incremental logic. This keeps the implementation simple and the graph always consistent. Target performance is sub-5 seconds for typical repositories.
 
@@ -69,4 +69,4 @@ Both interfaces call the same `query.*` functions -- the MCP server is not a sep
 
 ## Storage
 
-GoraphDB compiles into the binary -- no external database server needed. The `.cvalent/graph.db` file is a local cache, always rebuildable from source. It is gitignored by default.
+SQLite is embedded in the binary -- no external database server needed. The `.cvalent/store.db` file is a local cache, always rebuildable from source. It is gitignored by default.

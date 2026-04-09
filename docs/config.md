@@ -7,11 +7,11 @@ Running `cvalent init` creates a `.cvalent/` directory in your project root:
 ```
 .cvalent/
   config.json    # project configuration
-  graph.db       # GoraphDB graph database (gitignored)
-  .gitignore     # ignores graph.db
+  store.db       # SQLite store (gitignored)
+  .gitignore     # ignores store.db
 ```
 
-The `graph.db` file is automatically gitignored. It is a cache -- always rebuildable from source via `cvalent build`.
+The `store.db` file is automatically gitignored. It is a cache -- always rebuildable from source via `cvalent build`.
 
 ## config.json
 

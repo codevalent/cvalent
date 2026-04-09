@@ -53,6 +53,26 @@ The completeness level (`full`, `partial`, `inferred`) is stored on every functi
 - All top-level functions are treated as exported (Python has no access modifiers)
 - Dataclass and TypedDict field expansion for annotated parameter types
 
+## Distribution Resolution
+
+When resolving cross-repository dependencies, cvalent identifies the distribution (package identity) for each language by reading standard manifest files:
+
+### Go
+
+Reads `go.mod` for the module path (e.g., `module github.com/org/repo`). The module path is used as the distribution identifier.
+
+### Java
+
+Reads `pom.xml` for `groupId` and `artifactId`, or `build.gradle` for the equivalent properties. The distribution identifier is `groupId:artifactId`.
+
+### Python
+
+Reads `pyproject.toml`, `setup.cfg`, or `setup.py` (in that order of preference) for the distribution name. The `name` field in any of these files is used as the identifier.
+
+### TypeScript
+
+Reads `package.json` for the `name` field. Scoped packages (e.g., `@org/pkg`) are used as-is.
+
 ## Known Limitations
 
 - **No incremental parsing**: `cvalent build` re-parses all files every time

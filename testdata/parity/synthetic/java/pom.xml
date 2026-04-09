@@ -1,0 +1,5 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <groupId>com.example</groupId>
+  <artifactId>parity-synthetic</artifactId>
+  <version>0.1.0</version>
+</project>
