@@ -13,14 +13,16 @@ import (
 	"io"
 	"strings"
 
+	"github.com/codevalent/cvalent/internal/friction"
 	"github.com/codevalent/cvalent/internal/query"
 	"github.com/codevalent/cvalent/internal/store"
 )
 
 // Server implements MCP over stdio.
 type Server struct {
-	store   *store.Store
-	session *Session
+	store    *store.Store
+	friction friction.Detector
+	session  *Session
 }
 
 // Session scaffolds context tracking for future hosted-store sessions.
@@ -31,7 +33,7 @@ type Session struct {
 
 // NewServer creates an MCP server backed by the given store.
 func NewServer(s *store.Store) *Server {
-	return &Server{store: s, session: &Session{}}
+	return &Server{store: s, friction: friction.New(), session: &Session{}}
 }
 
 // JSON-RPC types
@@ -235,12 +237,14 @@ func mcpOpts(args map[string]interface{}) query.QueryOpts {
 }
 
 type pagedEnvelope struct {
-	TotalCount int         `json:"total_count"`
-	Returned   int         `json:"returned"`
-	Offset     int         `json:"offset"`
-	Items      interface{} `json:"items"`
-	Truncated  bool        `json:"truncated"`
-	Hint       string      `json:"hint,omitempty"`
+	TotalCount     int                  `json:"total_count"`
+	Returned       int                  `json:"returned"`
+	Offset         int                  `json:"offset"`
+	Items          interface{}          `json:"items"`
+	Truncated      bool                 `json:"truncated"`
+	Hint           string               `json:"hint,omitempty"`
+	Boundaries     *[]friction.Boundary `json:"boundaries,omitempty"`
+	BoundarySignal string               `json:"boundary_signal,omitempty"`
 }
 
 func wrapPaged[T any](pr query.PagedResult[T]) pagedEnvelope {
@@ -259,6 +263,23 @@ func wrapPaged[T any](pr query.PagedResult[T]) pagedEnvelope {
 		env.Hint = fmt.Sprintf("Use offset=%d to see more", pr.Offset+pr.Returned)
 	}
 	return env
+}
+
+// attachBoundaries wraps an envelope with boundaries from the friction
+// detector. For the seven affected tools, the field is always present
+// (possibly empty array). For the six unaffected tools, the caller
+// must not invoke this — the JSON `omitempty` ensures the field is
+// dropped when nil.
+func (s *Server) attachBoundaries(env *pagedEnvelope, tool string, args map[string]any, result any) {
+	if !friction.HasBoundary(tool) {
+		return
+	}
+	bs := s.friction.Detect(context.Background(), s.store, tool, args, result)
+	if bs == nil {
+		bs = []friction.Boundary{}
+	}
+	env.Boundaries = &bs
+	env.BoundarySignal = friction.BoundarySignal
 }
 
 func (s *Server) callTool(name string, args map[string]interface{}) (interface{}, error) {
@@ -281,13 +302,23 @@ func (s *Server) callTool(name string, args map[string]interface{}) (interface{}
 	}
 	opts := mcpOpts(args)
 
+	wrapAffected := func(name string, r any) any {
+		switch v := r.(type) {
+		case query.PagedResult[query.FunctionRef]:
+			env := wrapPaged(v)
+			s.attachBoundaries(&env, name, args, v)
+			return env
+		}
+		return r
+	}
+
 	switch name {
 	case "callers":
 		r, err := query.Callers(ctx, s.store, getStr("function"), opts)
 		if err != nil {
 			return nil, err
 		}
-		return wrapPaged(r), nil
+		return wrapAffected(name, r), nil
 	case "contract":
 		return query.Contract(ctx, s.store, getStr("function"))
 	case "impact":
@@ -295,19 +326,19 @@ func (s *Server) callTool(name string, args map[string]interface{}) (interface{}
 		if err != nil {
 			return nil, err
 		}
-		return wrapPaged(r), nil
+		return wrapAffected(name, r), nil
 	case "breaks":
 		r, err := query.Breaks(ctx, s.store, getStr("function"), opts)
 		if err != nil {
 			return nil, err
 		}
-		return wrapPaged(r), nil
+		return wrapAffected(name, r), nil
 	case "entry_points":
 		r, err := query.EntryPoints(ctx, s.store, opts)
 		if err != nil {
 			return nil, err
 		}
-		return wrapPaged(r), nil
+		return wrapAffected(name, r), nil
 	case "exports":
 		r, err := query.Exports(ctx, s.store, getStr("module"), opts)
 		if err != nil {
@@ -337,18 +368,48 @@ func (s *Server) callTool(name string, args map[string]interface{}) (interface{}
 		if err != nil {
 			return nil, err
 		}
-		return wrapPaged(r), nil
+		return wrapAffected(name, r), nil
 	case "test_coverage":
 		r, err := query.TestCoverage(ctx, s.store, getStr("function"), opts)
 		if err != nil {
 			return nil, err
 		}
-		return wrapPaged(r), nil
+		return wrapAffected(name, r), nil
 	case "graph_summary":
 		return query.GraphSummary(ctx, s.store)
 	case "subgraph":
-		return query.Subgraph(ctx, s.store, getStr("function"), getInt("hops", 2))
+		sub, err := query.Subgraph(ctx, s.store, getStr("function"), getInt("hops", 2))
+		if err != nil {
+			return nil, err
+		}
+		// Subgraph response carries its own boundaries field on a
+		// dedicated envelope so the shape is consistent with the other
+		// six affected tools.
+		bs := s.friction.Detect(ctx, s.store, name, args, sub)
+		if bs == nil {
+			bs = []friction.Boundary{}
+		}
+		return subgraphEnvelope{
+			Center:         sub.Center,
+			Callers:        sub.Callers,
+			Callees:        sub.Callees,
+			Hops:           sub.Hops,
+			Boundaries:     bs,
+			BoundarySignal: friction.BoundarySignal,
+		}, nil
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", name)
 	}
+}
+
+// subgraphEnvelope is the wire shape for the `subgraph` MCP tool —
+// the center plus its neighbours, plus the friction envelope (subgraph
+// is one of the seven affected tools).
+type subgraphEnvelope struct {
+	Center         *query.FunctionDetail `json:"center"`
+	Callers        []query.FunctionRef   `json:"callers"`
+	Callees        []query.FunctionRef   `json:"callees"`
+	Hops           int                   `json:"hops"`
+	Boundaries     []friction.Boundary   `json:"boundaries"`
+	BoundarySignal string                `json:"boundary_signal"`
 }

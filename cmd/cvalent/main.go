@@ -12,6 +12,7 @@ import (
 	"github.com/codevalent/cvalent/internal/build"
 	"github.com/codevalent/cvalent/internal/config"
 	"github.com/codevalent/cvalent/internal/mcp"
+	"github.com/codevalent/cvalent/internal/migrator"
 	"github.com/codevalent/cvalent/internal/query"
 	"github.com/codevalent/cvalent/internal/store"
 )
@@ -112,8 +113,55 @@ func openStoreForQuery() (*store.Store, error) {
 
 var depthFlag int
 
+// migrateStoreFlags
+var migrateRepoPath string
+
+var migrateStoreCmd = &cobra.Command{
+	Use:   "migrate-store",
+	Short: "Convert legacy .cvalent/graph.db (GoraphDB) to .cvalent/store.db (SQLite)",
+	Long: `migrate-store reads the pre-Rung-0 graph.db, normalizes every node's
+identity through the Model B canonicalizer, and writes the result into
+.cvalent/store.db. Wrapped in a single transaction — partial failure
+leaves no destination on disk. On success the legacy file is renamed
+to graph.db.bak and a migration.json manifest is written.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		root, _ := os.Getwd()
+		if migrateRepoPath != "" {
+			root = migrateRepoPath
+		}
+		legacyPath := config.LegacyGraphPath(root)
+		newPath := config.StorePath(root)
+
+		res, err := migrator.Migrate(context.Background(), legacyPath, newPath, root)
+		switch {
+		case errors.Is(err, migrator.ErrLegacyMissing):
+			fmt.Fprintln(os.Stderr, "no legacy graph.db found at", legacyPath)
+			os.Exit(1)
+		case errors.Is(err, migrator.ErrStoreExists):
+			fmt.Fprintln(os.Stderr, "destination store already exists at", newPath)
+			fmt.Fprintln(os.Stderr, "delete it explicitly if you want to re-run the migration")
+			os.Exit(2)
+		case err != nil:
+			fmt.Fprintln(os.Stderr, "migration failed:", err)
+			os.Exit(3)
+		}
+		for _, w := range res.Warnings {
+			fmt.Fprintln(os.Stderr, "warning:", w)
+		}
+		fmt.Printf("Migrated %d/%d nodes\n", res.MigratedCount, res.LegacyCount)
+		fmt.Printf("  New store: %s\n", res.NewPath)
+		fmt.Printf("  Backup:    %s\n", res.BackupPath)
+		fmt.Printf("  Manifest:  %s\n", res.ManifestPath)
+		if len(res.Warnings) > 0 {
+			fmt.Printf("  Warnings:  %d\n", len(res.Warnings))
+		}
+		return nil
+	},
+}
+
 func init() {
 	serveCmd.Flags().BoolVar(&mcpFlag, "mcp", false, "Start MCP server on stdio transport")
+	migrateStoreCmd.Flags().StringVar(&migrateRepoPath, "repo-path", "", "Repo path for distresolver re-resolution (defaults to cwd)")
 }
 
 func init() {
@@ -290,7 +338,7 @@ func init() {
 		entryPointsCmd, exportsCmd, domainsCmd, domainCmd,
 		couplingCmd, untestedCmd, testCoverageCmd)
 
-	rootCmd.AddCommand(parseCmd, initCmd, buildCmd, queryCmd, serveCmd)
+	rootCmd.AddCommand(parseCmd, initCmd, buildCmd, queryCmd, serveCmd, migrateStoreCmd)
 }
 
 func main() {
