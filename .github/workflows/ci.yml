@@ -18,3 +18,9 @@ jobs:
         with:
           go-version: "1.25.x"
       - run: go test ./... -count=1 -v
+
+  ci-all-green:
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "all matrix variants passed"
