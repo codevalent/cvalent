@@ -16,3 +16,6 @@
 
 # OS
 .DS_Store
+
+# /run-epic + sandcastle runtime artifacts
+.sandcastle/
