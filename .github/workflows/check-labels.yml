@@ -1,0 +1,44 @@
+# Check PR title matches conventional-commit format.
+#
+# cvalent uses trunk+tag with release-please. release-please reads the PR
+# title (on squash-merge, the title becomes the commit message on main) to
+# determine version bump level. Enforce the format at PR-open time so
+# release-please can't silently lose context.
+#
+# Accepted prefixes:
+#   feat, fix, chore, docs, refactor, test, perf, build, ci
+#   (optionally with scope: `feat(cli): ...`)
+#   (breaking: `feat!: ...` or `BREAKING CHANGE:` footer)
+
+name: Check PR title (conventional commits)
+
+on:
+  pull_request:
+    types: [opened, reopened, edited, synchronize]
+    branches:
+      - main
+
+jobs:
+  check:
+    name: Conventional-commit PR title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          echo "PR title: $TITLE"
+          # Accept: <type>(<scope>)?!?: <subject>  where type ∈ the list below.
+          if echo "$TITLE" | grep -qE '^(feat|fix|chore|docs|refactor|test|perf|build|ci|style|revert)(\([a-z0-9_-]+\))?!?: .+'; then
+            echo "OK: title matches conventional-commit format."
+            exit 0
+          fi
+
+          echo "::error::PR title does not match conventional-commit format."
+          echo "::error::Expected: <type>(<scope>)?!?: <subject>"
+          echo "::error::Allowed types: feat, fix, chore, docs, refactor, test, perf, build, ci, style, revert"
+          echo "::error::Examples:"
+          echo "::error::  feat(cli): add --verbose flag"
+          echo "::error::  fix: correct nil-pointer dereference in parser"
+          echo "::error::  feat!: remove deprecated --old-flag (breaking)"
+          exit 1
